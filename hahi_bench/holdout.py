@@ -33,7 +33,7 @@ def evaluate(tag, data):
 
 
 def boot(tag, data, workers, n=1000):
-    """n = 1000 as registered (all pairs); the revision re-ran the confirmatory pairs (F1, F2) with n = 10000 for p-value
+    """n = 1000 as originally specified (all pairs); the revision re-ran the confirmatory pairs (F1, F2) with n = 10000 for p-value
     resolution, while the descriptive pairs keep the registered 1,000 replicates."""
     M = PREREG['methods']
     pairs = PREREG['primary_families']['F1_plugin']['pairs'] + PREREG['primary_families']['F2_single_engine']['pairs']

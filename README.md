@@ -9,7 +9,7 @@ density-guided windows, packed canvases, multi-scale tiles) that runs a global v
 1. **Truncation-aware filtering (TAF).** A local detection that touches a crop border lying *inside* the image is
    discarded; the object is assumed to be contained whole in the global view or in another crop. Border contact is a
    proxy for truncation, and the filter can remove the only correct detection of a small object that the global view
-   misses (0.2–0.3% of the objects in our experiments; `taf_loss.py`).
+   misses (0.24–0.40% of the objects for HAHI-S with YOLOv8s; `taf_loss.py`).
 2. **Score-weighted box voting.** All remaining global and local boxes are merged by class-wise NMS, and each kept box
    is replaced by the score-weighted mean of the same-class candidates that overlap it (IoU &ge; 0.6).
 
@@ -17,7 +17,7 @@ The detector is not retrained. In this code base the rule is the suffix `trunc=d
 specification (written "+ F" in the manuscript), e.g. `SAHI@512{post=NMS,metric=IOU,trunc=drop,vote=0.6}`.
 
 The repository also contains everything needed to reproduce the controlled comparison in the manuscript: faithful
-re-implementations of the baselines, the evaluation and bootstrap code, the pre-registration files of the hold-out
+re-implementations of the baselines, the evaluation and bootstrap code, the pre-specified protocol files of the hold-out
 evaluation, and the scripts that generate the figures and tables.
 
 ## Repository layout
@@ -32,12 +32,12 @@ evaluation, and the scripts that generate the figures and tables.
 | `hahi_bench/run_eval.py` | Runs method specifications over a dataset and stores raw detections and per-image cost |
 | `hahi_bench/evaluate.py`, `metrics.py` | COCO evaluation with VisDrone ignore regions; ALL / HR / LR subsets |
 | `hahi_bench/stats.py`, `boot_gpu.py` | Paired bootstrap of AP differences (image level, or sequence level with `--cluster`); `boot_gpu.py` computes the same replicates on the GPU (identical to the CPU result within 1e-16) and writes the same cache files |
-| `hahi_bench/prereg.py`, `holdout.py`, `prereg*.json` | Pre-registration and the frozen hold-out protocol |
+| `hahi_bench/prereg.py`, `holdout.py`, `prereg*.json` | Writing and running the frozen, pre-specified hold-out protocol |
 | `hahi_bench/train.py`, `train_frcnn.py` | Detector training (YOLOv8n/s, YOLO11s, UAVDT, DOTA; Faster R-CNN R50-FPN v2) |
 | `hahi_bench/trt_bench.py` | TensorRT FP16/INT8 export and latency measurement (optional) |
 | `hahi_bench/headroom.py`, `taf_loss.py`, `fusion_rules.py`, `diag_*.py`, `gating.py`, `adaptive.py`, `fairness.py`, `directions.py` | Analyses reported in the manuscript and its Supporting Information |
 | `hahi_bench/paper_figs.py`, `paper_rows.py`, `paper_si.py` | Figures, table rows and Supporting Information of the manuscript |
-| `preregistration/` | Frozen pre-registration bundle (files, SHA-256 manifest, timeline); see its README |
+| `preregistration/` | Frozen protocol bundle (files, SHA-256 manifest, timeline; the frozen files keep their original wording "pre-registration"); see its README |
 
 ## Installation
 
@@ -132,7 +132,7 @@ Use a different `--suffix` for each switch so that the runs are stored separatel
 ```bash
 python -m hahi_bench.diag_views collect --data vd_val      # per-view detections of HAHI-S and MS
 python -m hahi_bench.taf_loss --data vd_val                # objects whose only correct detection TAF removed
-python -m hahi_bench.headroom --data vd_val                # TIDE-style error decomposition (Table 7)
+python -m hahi_bench.headroom --data vd_val                # TIDE-style error decomposition (Table 8)
 ```
 
 ## Pre-specified hold-out evaluation
@@ -145,7 +145,7 @@ therefore calls the protocol pre-specified rather than pre-registered.
 ```bash
 python -m hahi_bench.holdout run  --tag v8s              # inference for every pre-specified method
 python -m hahi_bench.holdout eval --tag v8s              # COCO evaluation
-python -m hahi_bench.holdout boot --tag v8s              # sequence-level paired bootstrap, 1,000 replicates (as registered)
+python -m hahi_bench.holdout boot --tag v8s              # sequence-level paired bootstrap, 1,000 replicates (originally specified)
 python -m hahi_bench.boot_gpu --data vid_holdout --tag v8s --n 10000 --cluster   # optional: replicates on the GPU
 python -m hahi_bench.holdout boot --tag v8s --n 10000    # confirmatory pairs with 10,000 replicates (primary analysis)
 ```
@@ -158,14 +158,14 @@ within each family and dataset.
 The code was extended after the hold-out evaluation with switches that are off by default (alternative fusion
 rules, the Dynamic Tiling baseline, the Faster R-CNN wrapper, environment-variable dataset roots), so the current
 files no longer match the code hashes in `prereg.json`. See `preregistration/README.md` for the timeline and the
-limitations of this internal registration.
+limitations of this internally time-stamped protocol.
 
 ## Figures, tables and Supporting Information
 
 ```bash
 python -m hahi_bench.paper_figs              # Figures 1-6 -> paper/figures (PNG 300 dpi + PDF); Figure 2 runs the detector
-python -m hahi_bench.paper_rows dt           # Table 4(b) rows
-python -m hahi_bench.paper_rows frcnn        # Faster R-CNN rows of Table 3
+python -m hahi_bench.paper_rows dt           # Table 5(b) rows (Dynamic Tiling)
+python -m hahi_bench.paper_rows frcnn        # Table 4(b) rows (Faster R-CNN)
 python -m hahi_bench.paper_si                # Supporting Information -> paper/supplementary_en.html
 ```
 
@@ -177,7 +177,13 @@ manuscript style sheet (`paper/paper.css`); neither is part of this repository.
 ## Weights and raw detections
 
 Trained detector weights and the raw detections of all reported runs (including the hold-out runs) are too large for
-this repository and will be deposited in a public archive; the DOI will be added here.
+this repository and are deposited in Zenodo:
+
+- hold-out protocol files, raw detections, per-image costs, metrics, per-view logs and bootstrap replicates
+  (CC BY 4.0): DOI to be added;
+- trained detector weights (AGPL-3.0): DOI to be added.
+
+Unzip the detection archives into `hahi_bench/runs/` to recompute every table without running the detectors.
 
 ## Related work and attribution
 
@@ -188,6 +194,15 @@ this repository and will be deposited in a public archive; the DOI will be added
 - DAHI, PAN and Dynamic Tiling are independent re-implementations from the respective papers; any deviation is
   documented in the code and in the Supporting Information of the manuscript.
 - Box voting follows Gidaris and Komodakis (ICCV 2015).
+
+## License
+
+The code in this repository is released under the GNU Affero General Public License v3.0 (see `LICENSE`). The
+detectors are trained and run with the Ultralytics YOLO framework, which is licensed under AGPL-3.0 and requires
+projects that use its code or trained models to be released under the same licence; the trained weights are therefore
+also released under AGPL-3.0. The raw detections and the hold-out protocol files are data and are released under
+CC BY 4.0, the licence of the open-access article. The datasets themselves (VisDrone, UAVDT, DOTA) are not
+redistributed and remain under the terms of their providers.
 
 ## Citation
 

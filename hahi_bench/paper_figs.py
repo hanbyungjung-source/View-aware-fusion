@@ -128,8 +128,9 @@ def fig2():
     infos = TM.build_canvases(img, remaining, cfg)[1] if cfg.packing and remaining else []
     v = V[i]
     rgb = img[:, :, ::-1]
-    fig = plt.figure(figsize=(W2, 2.75))
-    ax = fig.add_axes([0.0, 0.0, 0.64, 1.0])
+    TOP = 2.75 / 4.6                     # share of the figure height taken by panels (a) and (b)
+    fig = plt.figure(figsize=(W2, 4.6))
+    ax = fig.add_axes([0.0, 1 - TOP, 0.64, TOP])
     ax.imshow(rgb)
     ax.set_anchor('N')
     ax.axis('off')
@@ -148,7 +149,7 @@ def fig2():
     ax.add_patch(Rectangle((zx1, zy1), zx2 - zx1, zy2 - zy1, fc='none', ec='white', lw=1.2, ls=':'))
     ax.text(8, 8, '(a)', color='white', fontsize=8, weight='bold', va='top',
             bbox=dict(fc='black', ec='none', alpha=0.5, pad=1.5))
-    az = fig.add_axes([0.655, 0.36, 0.345, 0.64])
+    az = fig.add_axes([0.655, 1 - TOP + 0.36 * TOP, 0.345, 0.64 * TOP])
     az.imshow(rgb[zy1:zy2, zx1:zx2], extent=(zx1, zx2, zy2, zy1))
     az.set_xticks([])
     az.set_yticks([])
@@ -179,11 +180,56 @@ def fig2():
           Line2D([], [], color='white', lw=1.0, ls=(0, (2, 2)), label='ground truth',
                  path_effects=[pe.Stroke(linewidth=2.0, foreground='#444444'), pe.Normal()]),
           Line2D([], [], color='white', lw=1.0, ls=':', label='region enlarged in (b)',
-                 path_effects=[pe.Stroke(linewidth=2.0, foreground='#444444'), pe.Normal()])]
-    fig.legend(handles=hs, loc='upper left', bbox_to_anchor=(0.65, 0.35), ncol=1, frameon=False, fontsize=6.5)
+                 path_effects=[pe.Stroke(linewidth=2.0, foreground='#444444'), pe.Normal()]),
+          Line2D([], [], color='#00e676', lw=1.2, label='(c, d) final detection matched to ground truth'),
+          Line2D([], [], color='#ff1744', lw=1.2, label='(c, d) unmatched final detection')]
+    fig.legend(handles=hs, loc='upper left', bbox_to_anchor=(0.65, 1 - TOP + 0.355 * TOP), ncol=1, frameon=False,
+               fontsize=6.3, labelspacing=0.25, handlelength=1.6)
+
+    # (c, d): final detections (score >= 0.3) in a wider window, original HAHI merging vs view-aware fusion
+    from .headroom import fuse_online as fuse_f, fuse_plain as fuse_orig, greedy_match
+    from .metrics import _ignored_fraction
+    gt_b, gt_c = r.boxes.astype(np.float64), r.cls.astype(np.int64)
+    if len(r.ignore):
+        kg = _ignored_fraction(gt_b.astype(np.float32), r.ignore, r.w, r.h) <= 0.5
+        gt_b, gt_c = gt_b[kg], gt_c[kg]
+    wh = max(260.0, 3.2 * (g[3] - g[1]))
+    ww = min(w, 2.0 * wh)
+    cx, cy = (g[0] + g[2]) / 2, (g[1] + g[3]) / 2
+    wx1 = int(min(max(0, cx - ww / 2), w - ww))
+    wy1 = int(min(max(0, cy - wh / 2), h - wh))
+    wx2, wy2 = int(wx1 + ww), int(wy1 + wh)
+    stats = {}
+    for slot, (lab, fn) in enumerate((('(c) original HAHI merging', fuse_orig), ('(d) view-aware fusion', fuse_f))):
+        db, ds, dc = (np.asarray(x) for x in fn(v, 'HAHI-S'))
+        db, ds, dc = db.astype(np.float64), ds.astype(np.float64), dc.astype(np.int64)
+        if len(r.ignore) and len(db):
+            kd = _ignored_fraction(db.astype(np.float32), r.ignore, r.w, r.h) <= 0.5
+            db, ds, dc = db[kd], ds[kd], dc[kd]
+        keep = ds >= 0.3
+        db, ds, dc = db[keep], ds[keep], dc[keep]
+        dm, _ = greedy_match(db, ds, dc, gt_b, gt_c)
+        p = fig.add_axes([0.0 + 0.505 * slot, 0.0, 0.495, 1 - TOP - 0.035])
+        p.imshow(rgb[wy1:wy2, wx1:wx2], extent=(wx1, wx2, wy2, wy1))
+        p.set_xticks([])
+        p.set_yticks([])
+        for b in gt_b:
+            p.add_patch(Rectangle((b[0], b[1]), b[2] - b[0], b[3] - b[1], fc='none', ec='white', lw=0.7, ls=(0, (2, 2))))
+        inside = ((db[:, 0] + db[:, 2]) / 2 >= wx1) & ((db[:, 0] + db[:, 2]) / 2 <= wx2) & \
+            ((db[:, 1] + db[:, 3]) / 2 >= wy1) & ((db[:, 1] + db[:, 3]) / 2 <= wy2)
+        for b, m in zip(db[inside], dm[inside]):
+            p.add_patch(Rectangle((b[0], b[1]), b[2] - b[0], b[3] - b[1], fc='none',
+                                  ec='#00e676' if m >= 0 else '#ff1744', lw=1.0))
+        p.set_xlim(wx1, wx2)
+        p.set_ylim(wy2, wy1)
+        n_tp, n_fp = int((dm[inside] >= 0).sum()), int((dm[inside] < 0).sum())
+        stats[lab[:3]] = {'matched': n_tp, 'unmatched': n_fp}
+        p.text(0.01, 0.97, f'{lab}: {n_tp} matched, {n_fp} unmatched', transform=p.transAxes, color='white',
+               fontsize=6.8, weight='bold', va='top', bbox=dict(fc='black', ec='none', alpha=0.55, pad=1.5))
     save(fig, 'fig2_example')
     json.dump({'image': r.name, 'index': i, 'gt_class': names[int(r.cls[j])], 'iou_trunc': iou_t, 'iou_global': float(iou_g),
-               'n_trunc_shown': int(tr.sum()), 'n_regions': len(regions), 'n_canvas_regions': len(infos)},
+               'n_trunc_shown': int(tr.sum()), 'n_regions': len(regions), 'n_canvas_regions': len(infos),
+               'window_cd': [wx1, wy1, wx2, wy2], 'final_detections_cd': stats},
               open(os.path.join(OUT, 'fig2_example.json'), 'w'), indent=1)
 
 
@@ -283,7 +329,7 @@ def fig4():
 
 # ----------------------------------------------------------------------------------------------------------- Fig. 5/6
 def _holdout_rows(n=10000):
-    """F1 pairs on the hold-out data. n = bootstrap replicates (10,000 primary analysis, 1,000 as registered);
+    """F1 pairs on the hold-out data. n = bootstrap replicates (10,000 primary analysis, 1,000 as originally specified);
     p = (k + 1) / (n + 1), k = replicates with delta <= 0."""
     from .holdout import PREREG, safe
     Mm = PREREG['methods']

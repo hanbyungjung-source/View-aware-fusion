@@ -1,7 +1,7 @@
 """Print HTML table rows for the manuscript from the run directories and bootstrap files (no hand-copied numbers).
 
-  python -m hahi_bench.paper_rows dt       # Table 4(b): Dynamic Tiling vs view-aware fusion on the same 3x2 grid
-  python -m hahi_bench.paper_rows frcnn    # Table 3: Faster R-CNN column
+  python -m hahi_bench.paper_rows dt       # Table 5(b): Dynamic Tiling vs view-aware fusion on the same 3x2 grid
+  python -m hahi_bench.paper_rows frcnn    # Table 4(b): Faster R-CNN rows
 """
 import json
 import os
@@ -33,7 +33,7 @@ def fm(r, scale=100):
 
 
 def dt():
-    """Rows of Table 4(b): YOLOv8s metrics on test-dev, delta vs '+ F' with CI for v8s and point deltas for v8n / y11s."""
+    """Rows of Table 5(b): YOLOv8s metrics on test-dev, delta vs '+ F' with CI for v8s and point deltas for v8n / y11s."""
     ref = 'DYNTILE_trunc=drop,filt=False,vote=0.6_'
     rows = []
     for lab, r in DT:
@@ -71,7 +71,7 @@ FR = [('UC 2&times;2', 'UC2x2', 'UC2x2_trunc=drop,vote=0.6_'),
 
 
 def frcnn():
-    """Rows of the Faster R-CNN block of Table 3 (EN), with the paired bootstrap CI of + F minus original."""
+    """Rows of Table 4(b) (Faster R-CNN, EN), with the paired bootstrap CI of + F minus original."""
     for lab, a, b in FR:
         x, y = metrics('vd_testdev', 'frcnn', 'standard', a)['ALL'], metrics('vd_testdev', 'frcnn', 'standard', b)['ALL']
         bb = boot('vd_testdev', 'frcnn', b, a)

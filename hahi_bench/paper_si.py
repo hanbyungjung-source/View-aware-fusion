@@ -449,7 +449,7 @@ def main():
     body = [[f, v['sha256'][:16] + '…', v['created_local'].replace('T', ' ')] for f, v in man['files'].items()]
     body += [[f'first output, {k}', '', v.replace('T', ' ')] for k, v in man['first_holdout_output_local'].items()]
     add(table('TABLE S14 Protocol files (SHA-256 prefix, local creation time, KST) and the time of the first hold-out '
-              'output. The bundle is archived at <span class="todo">[DOI]</span>.', head=['File / event', 'SHA-256', 'Time'],
+              'output. The bundle is archived in Zenodo at <span class="todo">[DOI: protocol files and detections]</span>.', head=['File / event', 'SHA-256', 'Time'],
               body=body, convert=False))
 
     add('<h2>S6 | Detector scale response and per-size accuracy</h2>')

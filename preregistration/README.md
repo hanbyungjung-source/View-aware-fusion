@@ -1,7 +1,7 @@
 # Pre-specified protocol bundle (hold-out evaluation)
 
-This folder is meant to be uploaded unchanged to a public archive (Zenodo or OSF). The DOI of that deposit is cited in
-Section 4.6 of the manuscript. The protocol was fixed in these files before any hold-out inference, but it was not
+This folder is archived unchanged in Zenodo, in the same record as the raw detections of all reported runs. The DOI
+of that record is cited in Section 4.6 of the manuscript. The protocol was fixed in these files before any hold-out inference, but it was not
 lodged with an external registry; the manuscript therefore calls it pre-specified rather than pre-registered. (The
 file names keep the original `prereg` prefix so that the hashes in `MANIFEST.json` stay valid.)
 
@@ -37,5 +37,5 @@ file names keep the original `prereg` prefix so that the hashes in `MANIFEST.jso
   fusion rules for the overlap analysis, Soft-NMS, a scale factor for the TAF border distance, a GPU voting option,
   the Dynamic Tiling baseline and a Faster R-CNN wrapper) and with environment-variable dataset roots.
   The hold-out results were produced and stored before these changes, so the current files no longer match the code
-  hashes listed in `prereg.json`; the raw hold-out detections (`dets.pkl`) are deposited together with the trained
-  weights (see the repository README) so that every reported number can be recomputed.
+  hashes listed in `prereg.json`; the raw hold-out detections (`dets.pkl`) are deposited with this bundle, and the trained
+  weights in a separate Zenodo record (see the repository README), so that every reported number can be recomputed.
