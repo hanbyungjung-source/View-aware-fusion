@@ -26,10 +26,13 @@ file names keep the original `prereg` prefix so that the hashes in `MANIFEST.jso
 - The protocol is internal: the times above come from the local file system and were not lodged with a registry
   before the hold-out inference. Archiving this bundle makes the files public and immutable, but does not prove the
   original times.
-- The protocol specified 1,000 bootstrap replicates. After the evaluation, the confirmatory pairs were re-run with
-  10,000 replicates (same seed and resampling scheme) because 1,000 replicates resolve p only to about 0.001; both
-  analyses are reported, with p = (k + 1)/(B + 1). The number of significant F1 comparisons after Holm correction
-  is 39 of 44 in both.
+- The protocol specified 1,000 bootstrap replicates and the one-sided statistic P(Δ* ≤ 0) = k/B. With these settings
+  43 of 44 F1 comparisons are significant after Holm correction. After the evaluation, the confirmatory test was
+  changed to the inversion of the percentile interval, p = (k + 1)/(B + 1), with 10,000 replicates (same seed and
+  resampling scheme), because k/B is zero whenever no replicate is non-positive and 1,000 replicates cannot resolve
+  small p-values after correction. This test gives 39 of 44; a null-centred bootstrap test gives 43 of 44. The four
+  UAVDT comparisons that differ, and both F2 comparisons on UAVDT, depend on the test and are reported as
+  inconclusive. All three analyses are reported in the Supporting Information (S2).
 - After the hold-out evaluation, the evaluation code was extended with switches that are off by default (alternative
   fusion rules for the overlap analysis, Soft-NMS, a scale factor for the TAF border distance, a GPU voting option,
   the Dynamic Tiling baseline and a Faster R-CNN wrapper) and with environment-variable dataset roots.

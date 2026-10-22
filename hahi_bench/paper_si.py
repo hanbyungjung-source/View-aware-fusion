@@ -10,6 +10,8 @@ import json
 import os
 import re
 
+import numpy as np
+
 from .make_tables import _exists
 from .run_eval import RUN_ROOT
 from .tables import metrics
@@ -75,8 +77,8 @@ def to_html(head, body, convert=True, rename=None):
             for a, b in rename.items():
                 c = c.replace(a, b)
         c = c[:-1] if c.endswith('_') else c
-        bold = c.startswith('**') and c.endswith('**')
-        c = html.escape(c.strip('*')).replace('&quot;', '"')
+        bold = len(c) > 4 and c.startswith('**') and c.endswith('**')
+        c = html.escape(c[2:-2] if bold else c).replace('&quot;', '"')
         return f'<b>{c}</b>' if bold else c
     out = ['<table class="bt"><thead><tr>' + ''.join(f'<th>{html.escape(h)}</th>' for h in head) + '</tr></thead><tbody>']
     for r in body:
@@ -148,8 +150,19 @@ def frcnn_rows(data='vd_testdev'):
     return ['Method', 'Passes', 'GFLOPs', 'AP', 'APS', 'AP + F (or + voting)', 'ΔAP', 'ΔAP75'], body
 
 
-def holdout_p_table(family):
-    """Rows of the confirmatory tests: delta [CI] and Holm-adjusted p for 10,000 and the registered 1,000 replicates."""
+TESTS = {
+    # key: (label, replicates, function of (point estimate, replicate deltas))
+    'perc': ('percentile bootstrap, (k+1)/(B+1)', lambda dh, ds: (int((ds <= 0).sum()) + 1) / (len(ds) + 1)),
+    'cent': ('null-centred bootstrap, (1+#{Δ*−Δ̂ ≥ Δ̂})/(B+1)',
+             lambda dh, ds: (int((ds - dh >= dh).sum()) + 1) / (len(ds) + 1)),
+    'reg': ('as originally specified, P(Δ* ≤ 0) = k/B', lambda dh, ds: int((ds <= 0).sum()) / len(ds)),
+}
+
+
+def holdout_tests(family):
+    """Every confirmatory pair of the hold-out evaluation with Δ, 95% percentile CI (10,000 replicates) and the p-values of
+    the three tests in TESTS for B = 10,000 and B = 1,000, Holm-adjusted within each dataset (and family).
+    Replicates are read from the cached sequence-level bootstrap files written by stats.py / boot_gpu.py."""
     from .holdout import PREREG, safe
     from .paper_figs import _holm
     from .run_eval import RUN_ROOT
@@ -157,40 +170,60 @@ def holdout_p_table(family):
     pairs = PREREG['primary_families'][family]['pairs']
     settings = [('vid_holdout', 'v8s', 'VID · YOLOv8s'), ('vid_holdout', 'v8n', 'VID · YOLOv8n'),
                 ('vid_holdout', 'y11s', 'VID · YOLO11s'), ('uavdt_test', 'v8s', 'UAVDT · YOLOv8s')]
+
+    def reps(d, t, run, n):
+        return np.load(os.path.join(RUN_ROOT, d, t, 'standard', run, f'boot_reps_ALL_thr0_n{n}_s0_seq.npy'))[:, 0]
     rows = []
     for d, t, lab in settings:
         for a, b in pairs:
-            r = {'data': d, 'setting': lab, 'pair': a.replace(' + F', '') if family == 'F1_plugin' else f'{a} vs {b}'}
+            r = {'data': d, 'setting': lab, 'pair': (a.replace(' + F', '') if family == 'F1_plugin' else f'{a} vs {b}').replace('PAN', 'PAN*')}
             for n in (10000, 1000):
-                suf = '' if n == 1000 else f'_n{n}'
-                p = os.path.join(RUN_ROOT, d, t, 'standard', f'bootstrap_ALL_thr0{suf}_ref-{safe(M[a])}.json')
-                x = json.load(open(p)).get(safe(M[b])) if os.path.exists(p) else None
-                if x is None:
-                    r[n] = None
-                    continue
-                k = x['mAP'].get('k_le_0', round(x['mAP']['p_le_0'] * n))
-                r[n] = {'d': x['mAP']['delta'], 'lo': x['mAP']['ci_lo'], 'hi': x['mAP']['ci_hi'], 'p': (k + 1) / (n + 1)}
+                x = reps(d, t, safe(M[a]), n) - reps(d, t, safe(M[b]), n)
+                dh, ds = x[0], x[1:]
+                r[n] = {'d': dh, 'lo': float(np.percentile(ds, 2.5)), 'hi': float(np.percentile(ds, 97.5)),
+                        'p': {k: f(dh, ds) for k, (_, f) in TESTS.items()}}
             rows.append(r)
     for n in (10000, 1000):
-        for d in ('vid_holdout', 'uavdt_test'):
-            sub = [r for r in rows if r['data'] == d and r[n]]
-            for r, adj in zip(sub, _holm([r[n]['p'] for r in sub])):
-                r[n]['adj'] = adj
-    head = ['Setting', 'Comparison', 'Δ AP [95% CI], 10,000', 'p', 'Holm p', 'Δ AP [95% CI], 1,000', 'p', 'Holm p']
+        for key in TESTS:
+            for d in ('vid_holdout', 'uavdt_test'):
+                sub = [r for r in rows if r['data'] == d]
+                for r, adj in zip(sub, _holm([r[n]['p'][key] for r in sub])):
+                    r[n].setdefault('adj', {})[key] = adj
+    return rows
+
+
+def holdout_p_table(family):
+    """Table rows: Δ [CI] (10,000 replicates); percentile and null-centred p (10,000); originally specified analysis (1,000)."""
+    rows = holdout_tests(family)
+    head = ['Setting', 'Comparison', 'Δ AP [95% CI]', 'p, percentile', 'Holm', 'p, null-centred', 'Holm',
+            'P(Δ*≤0), B = 1,000 (original)', 'Holm']
+    fmt = lambda v, sig: f'**{v:.4f}**' if sig else f'{v:.4f}'
     body = []
     for r in rows:
-        cells = [r['setting'], r['pair']]
-        for n in (10000, 1000):
-            x = r[n]
-            if x is None:
-                cells += ['—', '—', '—']
-                continue
-            sig = x.get('adj', 1) < 0.05
-            cells += [f"{100 * x['d']:+.2f} [{100 * x['lo']:+.2f}, {100 * x['hi']:+.2f}]", f"{x['p']:.4f}",
-                      (f"**{x['adj']:.4f}**" if sig else f"{x['adj']:.4f}")]
+        x, o = r[10000], r[1000]
+        cells = [r['setting'], r['pair'], f"{100 * x['d']:+.2f} [{100 * x['lo']:+.2f}, {100 * x['hi']:+.2f}]"]
+        for key in ('perc', 'cent'):
+            cells += [f"{x['p'][key]:.4f}", fmt(x['adj'][key], x['adj'][key] < 0.05)]
+        cells += [f"{o['p']['reg']:.3f}", fmt(o['adj']['reg'], o['adj']['reg'] < 0.05)]
         body.append(cells)
-    n_sig = {n: sum(1 for r in rows if r[n] and r[n].get('adj', 1) < 0.05) for n in (10000, 1000)}
+    n_sig = {key: sum(1 for r in rows if r[10000]['adj'][key] < 0.05) for key in ('perc', 'cent')}
+    n_sig['reg1000'] = sum(1 for r in rows if r[1000]['adj']['reg'] < 0.05)
     return head, body, n_sig, len(rows)
+
+
+def holdout_count_table():
+    """How the number of Holm-significant F1 comparisons depends on the test and on B (decomposition of 43 -> 39)."""
+    rows = holdout_tests('F1_plugin')
+    head = ['p-value', 'B = 1,000', 'B = 10,000']
+    body = []
+    for key, (lab, _) in [('reg', TESTS['reg']), ('perc', TESTS['perc']), ('cent', TESTS['cent'])]:
+        cells = [lab]
+        for n in (1000, 10000):
+            tot = sum(1 for r in rows if r[n]['adj'][key] < 0.05)
+            vid = sum(1 for r in rows if r['data'] == 'vid_holdout' and r[n]['adj'][key] < 0.05)
+            cells.append(f'{tot} of 44 (VID {vid}/33, UAVDT {tot - vid}/11)')
+        body.append(cells)
+    return head, body
 
 
 def taf_loss_table():
@@ -295,20 +328,36 @@ def main():
     add(s6[:-len('</div>')] + '\n<div class="tnote"><b>(b)</b></div>\n' + to_html(bhead, bbody) + '</div>')
 
     add('<h2>S2 | Pre-specified hold-out evaluation</h2>')
-    add('<p>The protocol specified 1,000 bootstrap replicates. Because 1,000 replicates resolve p only to about 0.001, which '
-        'is coarse after Holm correction over 33 tests, the confirmatory pairs were re-run with 10,000 replicates (same seed '
-        'and resampling scheme). Both analyses are reported with p = (k + 1)/(B + 1), where k is the number of replicates with '
-        'Δ ≤ 0; Holm correction is applied within each family and dataset (F1: 33 tests on VisDrone-VID, 11 on UAVDT; F2: 6 '
-        'and 2). Bold: significant at 0.05 after correction.</p>')
-    add(table('TABLE S7 AP of all 30 pre-specified methods on the hold-out data.', 'T22a'))
+    add('<p>The protocol specified a sequence-level paired bootstrap with 1,000 replicates, the one-sided statistic '
+        'P(Δ* ≤ 0) and Holm correction within each family and dataset (F1: 33 tests on VisDrone-VID and 11 on UAVDT; F2: 6 '
+        'and 2). This statistic is zero when no replicate is ≤ 0, which happened for many pairs; with 1,000 replicates it '
+        'gave the 43 significant F1 comparisons that were first reported. The manuscript now uses as primary test the '
+        'inversion of the one-sided percentile interval with B = 10,000 replicates: p = (k + 1)/(B + 1), where k is the '
+        'number of replicates with Δ* ≤ 0. Up to the add-one convention, which avoids p = 0, this is the smallest α for '
+        'which the one-sided (1 − α) percentile interval excludes zero; it is as accurate as the percentile interval, '
+        'which assumes that the bootstrap distribution of Δ̂ is approximately symmetric about the true difference after a '
+        'monotone transformation. As a sensitivity analysis, the null-centred test shifts the replicates by the point '
+        'estimate so that they approximate the null distribution, and counts the shifted replicates that are at least as '
+        'large as the observed difference (Hall and Wilson, Biometrics 1991). All analyses use the same replicates (seed 0). '
+        'Table S8(a) separates the effects of the test and of B: the drop from 43 to 39 comes from four UAVDT comparisons '
+        'whose small p-values 1,000 replicates could not resolve. The percentile test finds them not significant with '
+        'either B, whereas the null-centred test finds them significant; with only 20 UAVDT sequences, these four results '
+        'are regarded as inconclusive. Bold: significant at 0.05 after correction.</p>')
+    add(table('TABLE S7 AP of all 30 pre-specified methods on the hold-out data. PAN*: crop planning of PAN only.', 'T22a', rename={'PAN': 'PAN*'}))
+    h0, b0 = holdout_count_table()
     h, b, ns, nt = holdout_p_table('F1_plugin')
-    add(table(f'TABLE S8 Confirmatory family F1 (plug-in, method + F minus method). Significant after Holm correction: '
-              f'{ns[10000]} of {nt} with 10,000 replicates and {ns[1000]} of {nt} with the registered 1,000 replicates.',
-              head=h, body=b, convert=False))
+    s8 = table(f'TABLE S8 Confirmatory family F1 (plug-in, method + F minus method). (a) Number of comparisons that are '
+               f'significant after Holm correction, by test and number of replicates B. (b) All comparisons: Δ and 95% '
+               f'percentile interval (B = 10,000); p-values of the primary percentile test and of the null-centred test '
+               f'(B = 10,000), and of the originally specified analysis (B = 1,000). Significant after correction: '
+               f'{ns["perc"]} of {nt} (percentile), {ns["cent"]} of {nt} (null-centred), {ns["reg1000"]} of {nt} (original).',
+               head=h0, body=b0, convert=False)
+    s8 = s8.replace('</div>\n<table', '</div>\n<div class="tnote"><b>(a)</b></div>\n<table', 1)
+    add(s8[:-len('</div>')] + '\n<div class="tnote"><b>(b)</b></div>\n' + to_html(h, b, convert=False) + '</div>')
     h, b, ns, nt = holdout_p_table('F2_single_engine')
     add(table(f'TABLE S9 Confirmatory family F2 (single-engine efficiency of HAHI-S; directional hypothesis: HAHI-S + F more '
-              f'accurate). Significant after Holm correction: {ns[10000]} of {nt} (10,000 replicates) and {ns[1000]} of {nt} '
-              f'(1,000).', head=h, body=b, convert=False))
+              f'accurate). Columns as in Table S8(b). Significant after Holm correction: {ns["perc"]} of {nt} (percentile), '
+              f'{ns["cent"]} of {nt} (null-centred), {ns["reg1000"]} of {nt} (original).', head=h, body=b, convert=False))
     add(table('TABLE S10 Descriptive comparisons without a directional hypothesis (pre-specified; 1,000 replicates).', 'T22d'))
 
     add('<h2>S3 | Selected configurations</h2>')

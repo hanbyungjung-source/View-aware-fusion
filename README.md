@@ -150,8 +150,10 @@ python -m hahi_bench.boot_gpu --data vid_holdout --tag v8s --n 10000 --cluster  
 python -m hahi_bench.holdout boot --tag v8s --n 10000    # confirmatory pairs with 10,000 replicates (primary analysis)
 ```
 
-One-sided p-values are computed as (k + 1)/(B + 1), where k is the number of replicates with Δ ≤ 0 (`p_boot` in the
-bootstrap JSON files); Holm correction is applied within each family and dataset.
+The primary test inverts the one-sided percentile interval: p = (k + 1)/(B + 1), where k is the number of replicates
+with Δ ≤ 0 (`p_boot` in the bootstrap JSON files). `paper_si.py` also reports a null-centred test (replicates shifted
+by the point estimate) and the originally specified statistic k/B with 1,000 replicates; Holm correction is applied
+within each family and dataset.
 
 The code was extended after the hold-out evaluation with switches that are off by default (alternative fusion
 rules, the Dynamic Tiling baseline, the Faster R-CNN wrapper, environment-variable dataset roots), so the current
