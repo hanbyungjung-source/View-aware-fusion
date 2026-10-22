@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+
+# results, weights and caches (released separately)
+hahi_bench/runs/
+hahi_bench/train_runs/
+hahi_bench/trt_work/
+hahi_bench/cache/
+hahi_bench/figures/
+*.pt
+*.pth
+*.engine
+*.onnx
+*.pkl
+*.npy
+*.log
+hahi_bench/log_*.txt
+hahi_bench/REPORT.md
+hahi_bench/report_tables.md
+
+# manuscript outputs
+paper/

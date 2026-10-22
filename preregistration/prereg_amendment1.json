@@ -1,0 +1,21 @@
+{
+ "created": "2026-10-20T18:27:25.872988+09:00",
+ "status": "amendment registered before any hold-out inference (runs/vid_holdout and runs/uavdt_test absent)",
+ "changes": [
+  "data.py: added UAVDT loader (dataset key uavdt_test = official 20 test sequences, every 10th frame); VisDrone-VID loader unchanged",
+  "train.py: added UAVDT conversion; UAVDT detector = YOLOv8s trained with the same recipe on 25 of the 30 train sequences (every 5th frame), 5 train sequences for early stopping; test sequences unused",
+  "UAVDT hold-out: same methods / pairs / statistics as vid_holdout; single detector (YOLOv8s)"
+ ],
+ "code_sha256": {
+  "thesis_methods.py": "a72f20c2b7ae5fce7a50cce9c61c8a18022772d3f49303ab7eba6408a9146356",
+  "baselines.py": "b35d317cf316e21d351d1fc97933378f409ee52ba849e9f660f8dcccb308313f",
+  "literature.py": "a5902cf43377b9175be0fe871f59517874dc1692e77751d877e16404745ef1cf",
+  "detector.py": "b24d77d1b94f9980428bcc68a02a1f35feed95c3e94cf9fb2d83041b4c8b9c2e",
+  "run_eval.py": "b07803ca3eef3e9ce8d1079e717ff6c15d39ff60c4134a3ecc1fb16507b1ad1e",
+  "metrics.py": "aed939fc08bc3daf983485fe28c4212113c93a9c48498f0509827278f44688b8",
+  "data.py": "f6867c2b02538f0b31750054c0e73a71f5a617c7a1d17f6130591486235502b0",
+  "stats.py": "a473fd965c85cc8b671ee87e0e3c3afe7506c177ef8e667fe55eb177dc29bfa2",
+  "train.py": "cdfaafaa50a22bdf5d97b44f0c167ce54f6b3c4fd4bf2621874e9af57b79552a",
+  "holdout.py": "baae948a9ba883697b6efec5a9c9053e1e405c0077b0b2283beb795b3a93ac74"
+ }
+}

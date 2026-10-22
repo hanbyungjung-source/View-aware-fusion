@@ -1,0 +1,36 @@
+{
+ "files": {
+  "prereg.py": {
+   "sha256": "f10ff8ee48e8094be3692789272fe744bdf4c2ed9ddb36a2df1cc8956a52427a",
+   "created_local": "2026-10-20T18:09:37"
+  },
+  "prereg.json": {
+   "sha256": "0d19466a06fe54a01a1f4aa744dd70e48aa8caa1c34d12d31e02824f33a9abf6",
+   "created_local": "2026-10-20T18:11:18"
+  },
+  "prereg_amendment1.json": {
+   "sha256": "9328094967dccd031090541164a456137f87fd941ad9d3f062a5159ce765ea89",
+   "created_local": "2026-10-20T18:27:25"
+  },
+  "holdout.py": {
+   "sha256": "baae948a9ba883697b6efec5a9c9053e1e405c0077b0b2283beb795b3a93ac74",
+   "created_local": "2026-10-20T18:11:40"
+  }
+ },
+ "first_holdout_output_local": {
+  "vid_holdout": "2026-10-20T18:28:43",
+  "uavdt_test": "2026-10-20T19:43:03"
+ },
+ "prereg_declared_hashes": {
+  "code_sha256": {
+   "thesis_methods.py": "a72f20c2b7ae5fce7a50cce9c61c8a18022772d3f49303ab7eba6408a9146356",
+   "baselines.py": "b35d317cf316e21d351d1fc97933378f409ee52ba849e9f660f8dcccb308313f",
+   "literature.py": "a5902cf43377b9175be0fe871f59517874dc1692e77751d877e16404745ef1cf",
+   "detector.py": "b24d77d1b94f9980428bcc68a02a1f35feed95c3e94cf9fb2d83041b4c8b9c2e",
+   "run_eval.py": "b07803ca3eef3e9ce8d1079e717ff6c15d39ff60c4134a3ecc1fb16507b1ad1e",
+   "metrics.py": "aed939fc08bc3daf983485fe28c4212113c93a9c48498f0509827278f44688b8",
+   "data.py": "79af8bbcf8ec71975b3021a34e89be91032d871d87860e2494b63043586112db",
+   "stats.py": "a473fd965c85cc8b671ee87e0e3c3afe7506c177ef8e667fe55eb177dc29bfa2"
+  }
+ }
+}
