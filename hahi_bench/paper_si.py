@@ -226,6 +226,30 @@ def holdout_count_table():
     return head, body
 
 
+def holdout_history_table():
+    """Every analysis of family F1 that has been reported, in order, with the settings that produced its count."""
+    from .paper_figs import _holm
+    rows = holdout_tests('F1_plugin')
+
+    def count(n, key):
+        per = sum(1 for r in rows if r[n]['adj'][key] < 0.05)
+        pooled = int((_holm([r[n]['p'][key] for r in rows]) < 0.05).sum())
+        return per, pooled
+    fam = 'per dataset (VID 33, UAVDT 11)'
+    spec = [('First report (originally specified analysis)', 1000, 'reg', 'k/B (0 reported as 0.001)'),
+            ('First revision, column labelled "registered" in error', 1000, 'perc', '(k+1)/(B+1)'),
+            ('First revision', 10000, 'perc', '(k+1)/(B+1)'),
+            ('**Current primary analysis (percentile inversion)**', 10000, 'perc', '(k+1)/(B+1)'),
+            ('Current sensitivity analysis (null-centred)', 10000, 'cent', '(1 + #{Δ*_b − Δ̂ ≥ Δ̂})/(B+1)'),
+            ('Current: originally specified analysis, reproduced', 1000, 'reg', 'k/B')]
+    head = ['Analysis', 'B', 'p-value', 'Holm family', 'Significant of 44', 'With one Holm family of 44']
+    body = []
+    for lab, n, key, f in spec:
+        per, pooled = count(n, key)
+        body.append([lab, f'{n:,}', f, fam, str(per), str(pooled)])
+    return head, body
+
+
 def taf_loss_table():
     from .run_eval import RUN_ROOT
     head = ['Data', 'Objects', 'Lost to TAF', '<16 px', '16–32 px', '32–96 px', '≥96 px',
@@ -328,35 +352,51 @@ def main():
     add(s6[:-len('</div>')] + '\n<div class="tnote"><b>(b)</b></div>\n' + to_html(bhead, bbody) + '</div>')
 
     add('<h2>S2 | Pre-specified hold-out evaluation</h2>')
-    add('<p>The protocol specified a sequence-level paired bootstrap with 1,000 replicates, the one-sided statistic '
-        'P(Δ* ≤ 0) and Holm correction within each family and dataset (F1: 33 tests on VisDrone-VID and 11 on UAVDT; F2: 6 '
-        'and 2). This statistic is zero when no replicate is ≤ 0, which happened for many pairs; with 1,000 replicates it '
-        'gave the 43 significant F1 comparisons that were first reported. The manuscript now uses as primary test the '
-        'inversion of the one-sided percentile interval with B = 10,000 replicates: p = (k + 1)/(B + 1), where k is the '
-        'number of replicates with Δ* ≤ 0. Up to the add-one convention, which avoids p = 0, this is the smallest α for '
-        'which the one-sided (1 − α) percentile interval excludes zero; it is as accurate as the percentile interval, '
-        'which assumes that the bootstrap distribution of Δ̂ is approximately symmetric about the true difference after a '
-        'monotone transformation. As a sensitivity analysis, the null-centred test shifts the replicates by the point '
-        'estimate so that they approximate the null distribution, and counts the shifted replicates that are at least as '
-        'large as the observed difference (Hall and Wilson, Biometrics 1991). All analyses use the same replicates (seed 0). '
-        'Table S8(a) separates the effects of the test and of B: the drop from 43 to 39 comes from four UAVDT comparisons '
-        'whose small p-values 1,000 replicates could not resolve. The percentile test finds them not significant with '
-        'either B, whereas the null-centred test finds them significant; with only 20 UAVDT sequences, these four results '
-        'are regarded as inconclusive. Bold: significant at 0.05 after correction.</p>')
+    add('<p><b>Tests.</b> All analyses use the same sequence-level paired bootstrap replicates (seed 0); Δ*<sub>b</sub> is the '
+        'AP difference (method + F minus method) in replicate b = 1, …, B, Δ̂ the observed difference and k the number of '
+        'replicates with Δ*<sub>b</sub> ≤ 0. Three one-sided p-values are reported:</p>')
+    add('<ul class="tight">'
+        '<li><i>Originally specified</i>: p = k/B with B = 1,000, as fixed in the protocol. It is zero whenever no replicate '
+        'is non-positive, so it cannot resolve small p-values after multiplicity correction.</li>'
+        '<li><i>Percentile inversion</i> (primary): p = (k + 1)/(B + 1) with B = 10,000. Up to the added one, this is the '
+        'smallest α for which the one-sided (1 − α) percentile lower bound, the α-quantile of Δ*, exceeds zero. A one-sided '
+        'test at level α therefore corresponds to a two-sided (1 − 2α) percentile interval: unadjusted p &lt; 0.05 holds for '
+        '43 F1 comparisons, whereas the two-sided 95% intervals of Table S8(c) exclude zero for 42. Holm-adjusted results need '
+        'not agree with individual intervals.</li>'
+        '<li><i>Null-centred</i> (sensitivity): the shifted replicates Δ*<sub>b</sub> − Δ̂ approximate the null distribution '
+        'of Δ̂, and p = (1 + #{b : Δ*<sub>b</sub> − Δ̂ ≥ Δ̂})/(B + 1), i.e. the observed difference is the threshold for the '
+        'shifted replicates, with the same add-one Monte Carlo correction (Hall and Wilson, Biometrics 1991; Davison and '
+        'Hinkley 1997).</li></ul>')
+    add('<p>All three are approximate tests. Holm\'s procedure controls the family-wise error rate only as well as the '
+        'individual p-values are calibrated, which, with 24 VisDrone-VID and 20 UAVDT sequences, is uncertain; results near '
+        '0.05 are therefore regarded as inconclusive. <b>Holm family.</b> The protocol prescribes Holm correction within each '
+        'primary family; its amendment added UAVDT with the same methods, pairs and statistics as VisDrone-VID. Each family '
+        'is therefore corrected separately per dataset: F1 has 33 tests on VisDrone-VID (11 pairs × 3 detectors) and 11 on '
+        'UAVDT, F2 has 6 and 2. Table S8(a) also gives the counts for a single Holm family of all 44 F1 tests.</p>')
+    add('<p><b>Change history.</b> Table S8(a) lists every analysis of F1 that has been reported. The first report (43 '
+        'significant) used the originally specified statistic. The first revision replaced it by percentile inversion and '
+        'labelled its 1,000-replicate column "registered" in error; that column was not the originally specified analysis. '
+        'The present version reports the percentile test as primary (39), the null-centred test (43) and the originally '
+        'specified analysis (43). The four UAVDT comparisons on which they disagree (SAHI, PAN*, MS-tiled 1136 and '
+        'MS-tiled 1280), and both F2 comparisons on UAVDT, are inconclusive. Bold in Tables S8(c) and S9: significant at '
+        '0.05 after correction.</p>')
     add(table('TABLE S7 AP of all 30 pre-specified methods on the hold-out data. PAN*: crop planning of PAN only.', 'T22a', rename={'PAN': 'PAN*'}))
+    h_hist, b_hist = holdout_history_table()
     h0, b0 = holdout_count_table()
     h, b, ns, nt = holdout_p_table('F1_plugin')
-    s8 = table(f'TABLE S8 Confirmatory family F1 (plug-in, method + F minus method). (a) Number of comparisons that are '
-               f'significant after Holm correction, by test and number of replicates B. (b) All comparisons: Δ and 95% '
-               f'percentile interval (B = 10,000); p-values of the primary percentile test and of the null-centred test '
-               f'(B = 10,000), and of the originally specified analysis (B = 1,000). Significant after correction: '
-               f'{ns["perc"]} of {nt} (percentile), {ns["cent"]} of {nt} (null-centred), {ns["reg1000"]} of {nt} (original).',
-               head=h0, body=b0, convert=False)
+    s8 = table(f'TABLE S8 Confirmatory family F1 (plug-in, method + F minus method). (a) Every reported analysis with the '
+               f'settings that produced its count. (b) Number of comparisons that are significant after Holm correction '
+               f'(per dataset), by p-value and number of replicates B. (c) All comparisons: Δ and two-sided 95% percentile '
+               f'interval (B = 10,000); p-values of the primary percentile test and of the null-centred test (B = 10,000), '
+               f'and of the originally specified analysis (B = 1,000). Significant after correction: {ns["perc"]} of {nt} '
+               f'(percentile), {ns["cent"]} of {nt} (null-centred), {ns["reg1000"]} of {nt} (original).',
+               head=h_hist, body=b_hist, convert=False)
     s8 = s8.replace('</div>\n<table', '</div>\n<div class="tnote"><b>(a)</b></div>\n<table', 1)
-    add(s8[:-len('</div>')] + '\n<div class="tnote"><b>(b)</b></div>\n' + to_html(h, b, convert=False) + '</div>')
+    add(s8[:-len('</div>')] + '\n<div class="tnote"><b>(b)</b></div>\n' + to_html(h0, b0, convert=False)
+        + '\n<div class="tnote"><b>(c)</b></div>\n' + to_html(h, b, convert=False) + '</div>')
     h, b, ns, nt = holdout_p_table('F2_single_engine')
     add(table(f'TABLE S9 Confirmatory family F2 (single-engine efficiency of HAHI-S; directional hypothesis: HAHI-S + F more '
-              f'accurate). Columns as in Table S8(b). Significant after Holm correction: {ns["perc"]} of {nt} (percentile), '
+              f'accurate). Columns as in Table S8(c). Significant after Holm correction: {ns["perc"]} of {nt} (percentile), '
               f'{ns["cent"]} of {nt} (null-centred), {ns["reg1000"]} of {nt} (original).', head=h, body=b, convert=False))
     add(table('TABLE S10 Descriptive comparisons without a directional hypothesis (pre-specified; 1,000 replicates).', 'T22d'))
 
@@ -386,6 +426,21 @@ def main():
     add('<h2>S5 | Hold-out protocol files</h2>')
     add('<p>The files were written on the author\'s computer and were not lodged with an external registry. The hashes '
         'identify the files; the creation times come from the local file system and cannot be verified independently.</p>')
+    add('<p><b>Changes after the confirmatory evaluation.</b> The protocol files themselves are unchanged (Table S14). '
+        'Everything below was decided after the hold-out results had been seen and is reported as such:</p>')
+    add('<ul class="tight">'
+        '<li><i>Statistical analysis.</i> The confirmatory test was changed from the originally specified statistic '
+        '(k/B, 1,000 replicates) to percentile inversion with 10,000 replicates; a null-centred test was added and the '
+        'original analysis is still reported (S2).</li>'
+        '<li><i>Wording.</i> An earlier draft called the protocol pre-registered; it is now called pre-specified.</li>'
+        '<li><i>Code.</i> Switches that are off by default were added: alternative merging rules (WBF, GREEDYNMM, '
+        'Soft-NMS), a scale factor for the TAF border distance, GPU voting, the Dynamic Tiling baseline, the Faster R-CNN '
+        'wrapper, GPU computation of bootstrap replicates and environment-variable dataset roots. The hold-out detections '
+        'were produced before these changes; the current code no longer matches the hashes in the protocol, and the '
+        'released detections allow every hold-out number to be recomputed.</li>'
+        '<li><i>Exploratory analyses of the hold-out data</i>, all labelled as such in the manuscript: the split of F2 by '
+        'frame width (Section 5.5), the resolution-adaptive global view (Section 6.3), and the recall lost by TAF on '
+        'VisDrone-VID (S10), which required new inference of HAHI-S with per-view logging.</li></ul>')
     man = json.load(open(os.path.join(os.path.dirname(OUT), 'prereg_bundle', 'MANIFEST.json')))
     body = [[f, v['sha256'][:16] + '…', v['created_local'].replace('T', ' ')] for f, v in man['files'].items()]
     body += [[f'first output, {k}', '', v.replace('T', ' ')] for k, v in man['first_holdout_output_local'].items()]

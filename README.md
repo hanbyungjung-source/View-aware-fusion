@@ -119,7 +119,7 @@ scale-response allocation in `thesis_methods.py` need the detector's scale-respo
 
 | Environment variable | Effect |
 |---|---|
-| `HAHI_TAF_SCALE=k` | multiplies the TAF border distance δ (5 px at the detector input / native window pixels, 3 canvas pixels) by k; used for the δ sensitivity analysis |
+| `HAHI_TAF_SCALE=k` | multiplies the TAF border distance δ (5 px at the detector input / native window pixels, 3 canvas pixels) by k for UC, SAHI, MS-tiled and HAHI(-S); PAN* and DAHI keep their defaults; used for the δ sensitivity analysis |
 | `HAHI_FUSION=soft` | replaces NMS + voting by Gaussian Soft-NMS (σ = 0.5, score floor 0.001) for specifications with `vote>0` |
 | `HAHI_FUSION=wbf_max` / `wbf_avg` / `nmm` | weighted boxes fusion (max / average score) or SAHI's GREEDYNMM instead of voting |
 | `HAHI_VOTE_DEVICE=cuda` | runs NMS + voting on the GPU (AP identical to within 1e-5) |

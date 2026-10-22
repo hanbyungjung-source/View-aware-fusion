@@ -75,7 +75,7 @@ def fig1():
             weight='bold', color='#b35900')
     box(54, 3, 30, 9.5, 'Truncation-aware filtering (TAF):\ndrop local boxes touching a crop\n'
         'border that lies inside the image', fc='#ffffff', fs=6.6)
-    box(54, 16, 30, 7.8, 'Class-wise NMS (IoU 0.6)\n+ score-weighted box voting', fc='#ffffff', fs=6.6)
+    box(54, 16, 30, 7.8, 'Class-wise NMS (method\'s IoU $\\tau_n$)\n+ score-weighted box voting\n(IoU 0.6)', fc='#ffffff', fs=6.6)
     arrow(45.6, 7.8, 53.6, 7.8)
     arrow(32.3, 21.5, 53.6, 21.5)
     arrow(69, 12.9, 69, 15.6)
