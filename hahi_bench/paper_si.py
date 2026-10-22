@@ -34,17 +34,35 @@ def pct(cell):
     return NUM4.sub(f, cell)
 
 
-def md_table(key):
+def md_blocks(key):
+    """All markdown tables inside a REPORT block, each with the last non-table line before it as its label."""
     m = re.search(rf'<!-- TABLE:{key} -->\n(.*?)\n<!-- /TABLE:{key} -->', REPORT, re.S)
     if not m:
         raise KeyError(key)
-    rows = [r for r in m.group(1).strip().split('\n') if r.startswith('|')]
-    if len(rows) < 2:
-        raise KeyError(key)
     split = lambda r: [c.strip() for c in r.strip().strip('|').split('|')]
-    head = [HEAD.get(h, h.replace('mAP', 'AP')) for h in split(rows[0])]
-    body = [split(r) for r in rows[2:]]
-    return head, body
+    blocks, label, cur = [], '', None
+    for r in m.group(1).strip().split('\n'):
+        if r.startswith('|'):
+            if cur is None:
+                cur = [label, []]
+                blocks.append(cur)
+            cur[1].append(r)
+        else:
+            label = r.strip() or label
+            cur = None
+    out = []
+    for lab, rows in blocks:
+        if len(rows) < 2:
+            raise KeyError(key)
+        out.append((lab, [HEAD.get(h, h.replace('mAP', 'AP')) for h in split(rows[0])], [split(r) for r in rows[2:]]))
+    return out
+
+
+def md_table(key):
+    blocks = md_blocks(key)
+    if len(blocks) != 1:
+        raise ValueError(f'{key} holds {len(blocks)} tables; use md_blocks')
+    return blocks[0][1], blocks[0][2]
 
 
 def to_html(head, body, convert=True, rename=None):
@@ -156,8 +174,14 @@ def main():
     add(table('TABLE S4 Test-dev results with YOLO11s (configurations transferred from YOLOv8s without retuning).', 'T9b'))
     add(table('TABLE S5 DOTA v1.0 val (458 images, mean width 2,398 px; YOLOv8s trained on DOTA train; VisDrone val '
               'configurations). Latency was not measured for methods that need dozens of passes per image (n/a).', 'T8'))
-    add(table('TABLE S6 View-aware fusion as a plug-in: val (YOLOv8s) and test-dev (three detectors), with paired bootstrap '
-              'intervals for test-dev.', 'T21'))
+    (_, h1, b1), *boot = md_blocks('T21')
+    s6 = table('TABLE S6 View-aware fusion as a plug-in. (a) AP before and after the plug-in on val (YOLOv8s) and test-dev '
+               '(three detectors). (b) Paired bootstrap of the test-dev gains (fusion &minus; base, AP points, 95% CI).',
+               head=h1, body=b1)
+    bhead = ['Detector'] + boot[0][1]
+    bbody = [[lab.split(',')[0].strip()] + r for lab, _, rows in boot for r in rows]
+    s6 = s6.replace('</div>\n<table', '</div>\n<div class="tnote"><b>(a)</b></div>\n<table', 1)
+    add(s6[:-len('</div>')] + '\n<div class="tnote"><b>(b)</b></div>\n' + to_html(bhead, bbody) + '</div>')
 
     add('<h2>S2 | Pre-registered hold-out evaluation</h2>')
     add(table('TABLE S7 AP of all 30 pre-registered methods on the hold-out data.', 'T22a'))

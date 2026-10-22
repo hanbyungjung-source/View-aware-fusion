@@ -64,23 +64,23 @@ def fig1():
     box(0.5, 11, 11, 8, 'High-resolution\nimage', fc='#f2f2f2')
     box(15, 19.5, 17, 7.5, 'Global pass\n(whole image, 640)', fc='#e8f0fb')
     box(15, 3, 17, 9.5, 'Crop planner\n(any method: tiles,\ndensity windows,\npacked canvases)', fc='#f2f2f2')
-    box(36, 3, 13, 9.5, 'Local passes\n(crops /\ncanvases)', fc='#e8f0fb')
+    box(36, 3, 9, 9.5, 'Local\npasses\n(crops /\ncanvases)', fc='#e8f0fb')
     arrow(11.8, 16.5, 14.6, 22.5)
     arrow(11.8, 13.5, 14.6, 8)
     arrow(23.5, 19.2, 23.5, 12.9)
     arrow(32.3, 7.8, 35.6, 7.8)
     # plug-in
-    ax.add_patch(Rectangle((52, 1.0), 34, 28.0, fc='#fff7e6', ec='#ff7f0e', lw=0.9, ls='--'))
-    ax.text(69, 27.0, 'View-aware fusion (training-free plug-in)', ha='center', va='center', fontsize=6.8,
+    ax.add_patch(Rectangle((53, 1.0), 33.4, 28.0, fc='#fff7e6', ec='#ff7f0e', lw=0.9, ls='--'))
+    ax.text(69.7, 27.0, 'View-aware fusion (training-free plug-in)', ha='center', va='center', fontsize=6.8,
             weight='bold', color='#b35900')
     box(54, 3, 30, 9.5, 'Truncation-aware filtering (TAF):\ndrop local boxes touching a crop\n'
-        'border that lies inside the image', fc='#ffffff', fs=6.3)
-    box(54, 16, 30, 7.8, 'Class-wise NMS (IoU 0.6)\n+ score-weighted box voting', fc='#ffffff', fs=6.3)
-    arrow(49.3, 7.8, 53.6, 7.8)
+        'border that lies inside the image', fc='#ffffff', fs=6.6)
+    box(54, 16, 30, 7.8, 'Class-wise NMS (IoU 0.6)\n+ score-weighted box voting', fc='#ffffff', fs=6.6)
+    arrow(45.6, 7.8, 53.6, 7.8)
     arrow(32.3, 21.5, 53.6, 21.5)
     arrow(69, 12.9, 69, 15.6)
-    ax.text(43, 22.6, 'global boxes', fontsize=5.8, ha='center', color='#555555')
-    ax.text(51.0, 4.2, 'local\nboxes', fontsize=5.6, ha='center', color='#555555')
+    ax.text(43, 22.6, 'global boxes', fontsize=6.5, ha='center', color='#555555')
+    ax.text(49.3, 4.0, 'local\nboxes', fontsize=6.5, ha='center', color='#555555', linespacing=1.0)
     box(88.5, 15.5, 11.2, 8.8, 'Detections', fc='#f2f2f2', bold=True, fs=6.6)
     arrow(84.4, 19.9, 88.1, 19.9)
     save(fig, 'fig1_overview')
@@ -131,6 +131,7 @@ def fig2():
     fig = plt.figure(figsize=(W2, 2.75))
     ax = fig.add_axes([0.0, 0.0, 0.64, 1.0])
     ax.imshow(rgb)
+    ax.set_anchor('N')
     ax.axis('off')
     for x1, y1, x2, y2 in regions:
         ax.add_patch(Rectangle((x1, y1), x2 - x1, y2 - y1, fc='none', ec='#00b0ff', lw=1.0))
@@ -170,12 +171,16 @@ def fig2():
     az.text(0.02, 0.98, '(b)', transform=az.transAxes, color='white', fontsize=8, weight='bold', va='top',
             bbox=dict(fc='black', ec='none', alpha=0.5, pad=1.5))
     from matplotlib.lines import Line2D
+    import matplotlib.patheffects as pe
     hs = [Line2D([], [], color='#00b0ff', lw=1.4, label='dense-window border'),
           Line2D([], [], color='#ffb000', lw=1.0, ls='--', label='packed-canvas source region'),
           Line2D([], [], color='#ff1744', lw=1.4, label=f'truncated local box (score {v["s"][k]:.2f}, IoU {iou_t:.2f})'),
           Line2D([], [], color='#00e676', lw=1.4, label=f'global-view box (score {v["s"][glob[Ig.argmax()]]:.2f}, IoU {iou_g:.2f})'),
-          Line2D([], [], color='#555555', lw=1.0, ls=(0, (2, 2)), label='ground truth')]
-    fig.legend(handles=hs, loc='upper left', bbox_to_anchor=(0.65, 0.345), ncol=1, frameon=False, fontsize=5.8)
+          Line2D([], [], color='white', lw=1.0, ls=(0, (2, 2)), label='ground truth',
+                 path_effects=[pe.Stroke(linewidth=2.0, foreground='#444444'), pe.Normal()]),
+          Line2D([], [], color='white', lw=1.0, ls=':', label='region enlarged in (b)',
+                 path_effects=[pe.Stroke(linewidth=2.0, foreground='#444444'), pe.Normal()])]
+    fig.legend(handles=hs, loc='upper left', bbox_to_anchor=(0.65, 0.35), ncol=1, frameon=False, fontsize=6.5)
     save(fig, 'fig2_example')
     json.dump({'image': r.name, 'index': i, 'gt_class': names[int(r.cls[j])], 'iou_trunc': iou_t, 'iou_global': float(iou_g),
                'n_trunc_shown': int(tr.sum()), 'n_regions': len(regions), 'n_canvas_regions': len(infos)},
@@ -196,12 +201,12 @@ def fig3():
     y = np.arange(len(rows))[::-1]
     ax.barh(y, [r[1] * 100 for r in rows], color=[col[r[2]] for r in rows], height=0.6)
     ax.set_yticks(y)
-    ax.set_yticklabels([r[0] for r in rows], fontsize=6.2)
+    ax.set_yticklabels([r[0] for r in rows], fontsize=6.5)
     ax.axvline(0, color='black', lw=0.6)
     for yy, r in zip(y, rows):
         d = r[1] * 100
-        ax.text(d + (0.02 if d >= 0 else -0.02), yy, f'{d:+.2f}', va='center', ha='left' if d >= 0 else 'right',
-                fontsize=6.2)
+        ax.text(d + (0.02 if d >= 0 else -0.02), yy, f'{d:+.2f}'.replace('-', '\u2212'), va='center',
+                ha='left' if d >= 0 else 'right', fontsize=6.5)
     ax.set_xlabel('ΔAP (points, VisDrone val)')
     ax.set_xlim(-0.45, 0.5)
     ax.spines[['top', 'right']].set_visible(False)
@@ -226,8 +231,8 @@ def fig4():
            'DAHI, $N_{\\mathrm{ROI}}$ = 2': (4, 0, 'left'),
            'PAN': (4, -9, 'left'), 'MS-tiled 960': (-4, 4, 'right'), 'MS-tiled 1280': (5, -4, 'left'),
            'MS-tiled 1536': (4, -9, 'left'), 'HAHI-S': (4, 3, 'left'), 'HAHI-S, route 0.1': (-4, 4, 'right')}
-    moff = {'Global 1280': (-4, 3, 'right'), 'MS 640+1280 (+ voting)': (-4, 5, 'right'),
-            'MS 640+1536 (+ voting)': (0, -8, 'center'), 'MS 640+1280+1536': (-4, 4, 'right')}
+    moff = {'Global 1280': (-4, 3, 'right'), 'MS 640+1280 + voting': (-4, 5, 'right'),
+            'MS 640+1280+1536': (-4, 4, 'right')}
     fig, ax = plt.subplots(figsize=(W2, 3.1))
     for label, base, plug in CROP:
         b, p = M('vd_testdev', 'v8s', base), M('vd_testdev', 'v8s', plug)
@@ -239,20 +244,24 @@ def fig4():
         ax.annotate('', xy=(x, 100 * p['mAP']), xytext=(x, 100 * b['mAP']),
                     arrowprops=dict(arrowstyle='-|>', color=C_PLUG, lw=0.7, mutation_scale=6))
         dx, dy, ha = off[label]
-        ax.annotate(label, (x, 100 * p['mAP']), xytext=(dx, dy), textcoords='offset points', fontsize=6, ha=ha,
+        ax.annotate(label, (x, 100 * p['mAP']), xytext=(dx, dy), textcoords='offset points', fontsize=6.5, ha=ha,
                     va='bottom')
-    ms = [('Global 1280', 'global@1280'), ('MS 640+1280 (+ voting)', 'MS@640x1280_vote=0.6_'),
-          ('MS 640+1536 (+ voting)', 'MS@640x1536_vote=0.6_'), ('MS 640+1280+1536', 'MS@640x1280x1536')]
+    ms = [('Global 1280', 'global@1280'), ('MS 640+1280 + voting', 'MS@640x1280_vote=0.6_'),
+          ('MS 640+1536 + voting', 'MS@640x1536_vote=0.6_'), ('MS 640+1280+1536', 'MS@640x1280x1536')]
     pts = [(n, M('vd_testdev', 'v8s', r)) for n, r in ms]
     pts = [(n, m) for n, m in pts if m]
     ax.plot([m['gflops'] for _, m in pts], [100 * m['mAP'] for _, m in pts], '-s', color=C_MS, ms=3.5, lw=0.8,
             zorder=2)
     for n, m in pts:
+        xy = (m['gflops'], 100 * m['mAP'])
+        if n.startswith('MS 640+1536'):
+            # free area above the MS line, with a leader line, to keep clear of the HAHI-S route 0.1 markers
+            ax.annotate(n.replace(' + voting', '\n+ voting'), xy, xytext=(121, 23.5), textcoords='data', fontsize=6.5,
+                        color=C_MS, ha='left', va='bottom', linespacing=1.0,
+                        arrowprops=dict(arrowstyle='-', color=C_MS, lw=0.5, shrinkA=1, shrinkB=2))
+            continue
         dx, dy, ha = moff[n]
-        two = n.startswith('MS 640+1536')
-        ax.annotate(n.replace(' (+', '\n(+') if two else n, (m['gflops'], 100 * m['mAP']), xytext=(dx, dy),
-                    textcoords='offset points', fontsize=6, color=C_MS, ha=ha, va='top' if two else 'bottom',
-                    linespacing=1.0)
+        ax.annotate(n, xy, xytext=(dx, dy), textcoords='offset points', fontsize=6.5, color=C_MS, ha=ha, va='bottom')
     from matplotlib.lines import Line2D
     ax.legend(handles=[Line2D([], [], marker='o', ls='', mfc='white', mec=C_BASE, label='crop method (original merging)'),
                        Line2D([], [], marker='o', ls='', color=C_PLUG, label='+ view-aware fusion (this work)'),
@@ -335,7 +344,7 @@ def fig5():
     ax.set_xticks(range(len(meth)))
     lab = {'UC': 'UC 2×2', 'SAHI': 'SAHI 512', 'DAHI': 'DAHI', 'DAHI N_ROI=2': 'DAHI,\n$N_{\\mathrm{ROI}}$ = 2', 'PAN': 'PAN',
            'HAHI-S route 0.1': 'HAHI-S,\nroute 0.1'}
-    ax.set_xticklabels([lab.get(m, m.replace('MS-tiled ', 'MS-tiled\n')) for m in meth], fontsize=6.2)
+    ax.set_xticklabels([lab.get(m, m.replace('MS-tiled ', 'MS-tiled\n')) for m in meth], fontsize=6.5)
     ax.set_ylabel('ΔAP, + F − original\n(points, 95% CI)')
     ax.legend(ncol=4, loc='upper right', frameon=False)
     ax.set_ylim(-0.3, 2.6)
@@ -356,7 +365,7 @@ def fig6():
     rr = float(np.corrcoef(x, y)[0, 1])
     rho = float(np.corrcoef(np.argsort(np.argsort(x)), np.argsort(np.argsort(y)))[0, 1])
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(W2, 2.5), gridspec_kw={'width_ratios': [1, 1.05], 'wspace': 0.95})
-    grp = [('VisDrone-DET test-dev (development)', [r for r in dev], 'o', '#7f7f7f'),
+    grp = [('VisDrone-DET test-dev', [r for r in dev], 'o', '#7f7f7f'),
            ('VisDrone-VID (hold-out)', [r for r in hold if r['data'] == 'vid_holdout'], 's', '#1f77b4'),
            ('UAVDT (hold-out)', [r for r in hold if r['data'] == 'uavdt_test'], '^', '#ff7f0e')]
     for lab, rs, mk, c in grp:
@@ -366,31 +375,29 @@ def fig6():
     xx = np.linspace(x.min(), x.max(), 10)
     a1.plot(xx, k * xx + b0, color='black', lw=0.7, ls='--')
     a1.text(0.03, 0.97, f'Pearson r = {rr:.2f}\nSpearman ρ = {rho:.2f}\nn = {len(allr)}', transform=a1.transAxes, va='top',
-            fontsize=6.3)
-    a1.set_xlabel('detector passes per image (640×640 units)')
+            fontsize=6.5)
+    a1.set_xlabel('Detector passes per image')
     a1.set_ylabel('ΔAP, + F − original (points)')
     a1.set_xlim(2, 18)
     a1.set_ylim(0, 1.9)
-    a1.legend(loc='upper center', bbox_to_anchor=(0.45, -0.24), ncol=2, frameon=False, fontsize=5.6, handletextpad=0.2,
-              columnspacing=0.8)
+    a1.legend(loc='lower right', frameon=False, fontsize=6.5, handletextpad=0.2, borderaxespad=0.2)
     a1.set_title('(a)', loc='left', fontsize=8, weight='bold')
     a1.spines[['top', 'right']].set_visible(False)
     H = json.load(open(os.path.join(RUN_ROOT, 'vd_val', 'v8s', 'views', 'headroom.json')))
-    keys = [('miss_pool', 'Fusion: recover\ndropped GT'), ('cls_pool', 'Fusion: cross-view\nclass consensus'),
+    keys = [('miss_pool', 'Fusion: recover\ndropped objects'), ('cls_pool', 'Fusion: cross-view\nclass consensus'),
             ('loc_view', 'Fusion: best view\nper object (oracle)'), ('bkg', 'Detector:\nbackground FPs'),
             ('cls', 'Detector:\nclass confusion'), ('miss_det', 'Detector: missed\nby every view')]
     yy = np.arange(len(keys))[::-1]
-    for off, (mname, lab, c) in zip((0.18, -0.18), [('HAHI-S', 'HAHI-S + F', C_PLUG), ('MS-1280x736', 'MS 640+1280 + voting', C_MS)]):
+    for off, (mname, lab, c) in zip((0.18, -0.18), [('HAHI-S', 'HAHI-S + F', C_PLUG),
+                                                    ('MS-1280x736', 'MS 640 + 1280×736\nengine + voting', C_MS)]):
         mm = H[mname]['metrics']
         a2.barh(yy + off, [(mm[kk]['mAP'] - mm['base']['mAP']) * 100 for kk, _ in keys], height=0.34, color=c, label=lab)
     a2.set_yticks(yy)
-    a2.set_yticklabels([l for _, l in keys], fontsize=6.0)
+    a2.set_yticklabels([l for _, l in keys], fontsize=6.5)
     a2.set_xlabel('ΔAP if fixed (points)')
     a2.axvline(0, color='black', lw=0.6)
-    a2.axvline(0.15, color='#1f77b4', lw=0.6, ls=':')
-    a2.annotate('best training-free\nview-trust rule (+0.15)', xy=(0.15, yy[2]), xytext=(3.2, yy[1] + 0.1), fontsize=5.6,
-                color='#1f77b4', va='center', arrowprops=dict(arrowstyle='-', color='#1f77b4', lw=0.5))
-    a2.legend(loc='upper right', frameon=False, fontsize=5.6)
+    a2.axvline(0.15, color='#1f77b4', lw=0.7, ls=':', label='best training-free\nview-weighting rule (+0.15)')
+    a2.legend(loc='upper right', frameon=False, fontsize=6.5, borderaxespad=0.2)
     a2.set_xlim(0, 9.8)
     a2.set_title('(b)', loc='left', fontsize=8, weight='bold')
     a2.spines[['top', 'right']].set_visible(False)

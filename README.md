@@ -138,7 +138,8 @@ python -m hahi_bench.paper_rows frcnn        # Faster R-CNN rows of Table 3
 python -m hahi_bench.paper_si                # Supporting Information -> paper/supplementary_en.html
 ```
 
-All numbers are read from the stored runs and bootstrap files; none are copied by hand. `paper_si.py` additionally
+Numbers are read from the stored runs and bootstrap files, except for the six bars of Figure 3, which are copied
+from the validation analyses named in the code. `paper_si.py` additionally
 reads a local results report (`hahi_bench/REPORT.md`, written by `make_tables.py` and the analysis scripts) and the
 manuscript style sheet (`paper/paper.css`); neither is part of this repository.
 
