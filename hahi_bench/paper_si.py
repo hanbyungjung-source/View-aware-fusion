@@ -408,9 +408,13 @@ def main():
            ['MS a+b', 'full image at each size, class-wise NMS IoU 0.6 (0.7 for 640+1536 in the hold-out evaluation, selected on val); voting IoU equal to the NMS IoU'],
            ['MS-tiled S', 'global 640 pass + minimum number of 640×640 tiles covering the image resized to longer side S; NMS 0.6'],
            ['HAHI-S', 'uniform density weights, no snapping, no upscaling, no global calibration, merging NMS 0.6; window 512, canvas 960, routing ratio 0.3 (0.1 for "route 0.1")'],
-           ['+ F (view-aware fusion)', 'TAF with δ = 5 px at the detector input for tiles and crops (UC, SAHI, DAHI, MS-tiled), 5 native px for HAHI dense windows, 5 canvas px for PAN canvases and 3 canvas px for HAHI canvases; class-wise NMS at the method\'s own merging threshold τn (UC 0.4, SAHI 0.5, PAN 0.5, HAHI-S 0.6, MS-tiled 0.6, DAHI 0.65) followed by box voting with τv = 0.6; sensitivity to δ in S10'],
+           ['+ F (view-aware fusion)', 'TAF border distance δ (fixed rule, not tuned): 5 px at the detector input for UC, SAHI, DAHI, MS-tiled and Dynamic Tiling, i.e. 5 × crop side / detector input size in the view coordinates of each crop, and 5 canvas px for PAN* (640-px canvases = detector input); HAHI-S keeps the border test of the original HAHI code, 5 view px on 512-px dense windows (6.25 px at the input) and 3 canvas px on 960-px canvases (2 px at the input). The test is made in view coordinates before boxes are mapped to the image. Then class-wise NMS at the method\'s own merging threshold τn (UC 0.4, SAHI 0.5, PAN* 0.5, HAHI-S 0.6, MS-tiled 0.6, DAHI 0.65) and box voting with τv = 0.6, the only value selected on val (for HAHI-S). Sensitivity to δ in S10'],
            ['Dynamic Tiling', 'resize to 1920×1080, 3×2 tiles, edge threshold 2%, Tile Minimizer, full-image pass; selected on val: no large-small filter, NMS 0.6, planning score 0.1 (see S8)']]
     add(table('TABLE S11 Configurations used in the manuscript.', head=['Method', 'Configuration'], body=cfg, convert=False))
+    add('<p><b>When δ was fixed.</b> The border distances were set when the plug-in was implemented for each method and '
+        'were never changed. The DAHI and PAN* code (literature.py) is byte-identical to the version whose SHA-256 is '
+        'recorded in the hold-out protocol (S5); the other files were later extended with switches that are off by default, '
+        'and with these defaults the current code reproduces the stored detections exactly (checked on 15 val images for each of the four methods concerned: UC, SAHI, MS-tiled and HAHI-S).</p>')
 
     add('<h2>S4 | Audit of the original HAHI implementation</h2>')
     add('<p>The original implementation of HAHI [12] was ported and reproduced exactly (all twelve AP values of the thesis '
