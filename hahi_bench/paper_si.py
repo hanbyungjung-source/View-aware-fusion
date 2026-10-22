@@ -148,6 +148,116 @@ def frcnn_rows(data='vd_testdev'):
     return ['Method', 'Passes', 'GFLOPs', 'AP', 'APS', 'AP + F (or + voting)', 'ΔAP', 'ΔAP75'], body
 
 
+def holdout_p_table(family):
+    """Rows of the confirmatory tests: delta [CI] and Holm-adjusted p for 10,000 and the registered 1,000 replicates."""
+    from .holdout import PREREG, safe
+    from .paper_figs import _holm
+    from .run_eval import RUN_ROOT
+    M = PREREG['methods']
+    pairs = PREREG['primary_families'][family]['pairs']
+    settings = [('vid_holdout', 'v8s', 'VID · YOLOv8s'), ('vid_holdout', 'v8n', 'VID · YOLOv8n'),
+                ('vid_holdout', 'y11s', 'VID · YOLO11s'), ('uavdt_test', 'v8s', 'UAVDT · YOLOv8s')]
+    rows = []
+    for d, t, lab in settings:
+        for a, b in pairs:
+            r = {'data': d, 'setting': lab, 'pair': a.replace(' + F', '') if family == 'F1_plugin' else f'{a} vs {b}'}
+            for n in (10000, 1000):
+                suf = '' if n == 1000 else f'_n{n}'
+                p = os.path.join(RUN_ROOT, d, t, 'standard', f'bootstrap_ALL_thr0{suf}_ref-{safe(M[a])}.json')
+                x = json.load(open(p)).get(safe(M[b])) if os.path.exists(p) else None
+                if x is None:
+                    r[n] = None
+                    continue
+                k = x['mAP'].get('k_le_0', round(x['mAP']['p_le_0'] * n))
+                r[n] = {'d': x['mAP']['delta'], 'lo': x['mAP']['ci_lo'], 'hi': x['mAP']['ci_hi'], 'p': (k + 1) / (n + 1)}
+            rows.append(r)
+    for n in (10000, 1000):
+        for d in ('vid_holdout', 'uavdt_test'):
+            sub = [r for r in rows if r['data'] == d and r[n]]
+            for r, adj in zip(sub, _holm([r[n]['p'] for r in sub])):
+                r[n]['adj'] = adj
+    head = ['Setting', 'Comparison', 'Δ AP [95% CI], 10,000', 'p', 'Holm p', 'Δ AP [95% CI], 1,000', 'p', 'Holm p']
+    body = []
+    for r in rows:
+        cells = [r['setting'], r['pair']]
+        for n in (10000, 1000):
+            x = r[n]
+            if x is None:
+                cells += ['—', '—', '—']
+                continue
+            sig = x.get('adj', 1) < 0.05
+            cells += [f"{100 * x['d']:+.2f} [{100 * x['lo']:+.2f}, {100 * x['hi']:+.2f}]", f"{x['p']:.4f}",
+                      (f"**{x['adj']:.4f}**" if sig else f"{x['adj']:.4f}")]
+        body.append(cells)
+    n_sig = {n: sum(1 for r in rows if r[n] and r[n].get('adj', 1) < 0.05) for n in (10000, 1000)}
+    return head, body, n_sig, len(rows)
+
+
+def taf_loss_table():
+    from .run_eval import RUN_ROOT
+    head = ['Data', 'Objects', 'Lost to TAF', '<16 px', '16–32 px', '32–96 px', '≥96 px',
+            'width ≤1400', '1401–1920', '>1920', 'AP after F', 'AP restored']
+    body = []
+    for d, lab in (('vd_val', 'VisDrone val'), ('vd_testdev', 'VisDrone test-dev'), ('vid_holdout', 'VisDrone-VID')):
+        p = os.path.join(RUN_ROOT, d, 'v8s', 'views', 'taf_loss.json')
+        if not os.path.exists(p):
+            continue
+        x = json.load(open(p))['thr0.001']
+        f = lambda lg: f'{lg[0]} ({100 * lg[0] / lg[1]:.2f}%)' if lg[1] else '—'
+        body.append([lab, f"{x['n_gt']:,}", f"{x['n_lost']} ({100 * x['n_lost'] / x['n_gt']:.2f}%)"]
+                    + [f(v) for v in x['size'].values()] + [f(v) for v in x['width'].values()]
+                    + [f"{100 * x['AP_fused']:.2f}", f"{100 * x['AP_restored']:.2f}"])
+    return head, body
+
+
+TAF_DELTA = [('0', 0), ('0.4', 2), (None, 5), ('2', 10), ('4', 20)]
+TAF_METHODS = [('HAHI-S + F', 'HAHI_weight=uniform,snap=False,upscale=none,gcc=1.0,nms_local=0.6,nms_final=0.6,fast_merge=True,'
+                'nms_impl=tv,trunc=drop,vote=0.6_'), ('SAHI 512 + F', 'SAHI@512_post=NMS,metric=IOU,trunc=drop,vote=0.6_'),
+               ('MS-tiled 1280 + F', 'MSTILE@1280_trunc=drop,vote=0.6_'), ('UC 2×2 + F', 'UC2x2_trunc=drop,vote=0.6_')]
+
+
+def taf_delta_table():
+    from .make_tables import _exists
+    from .tables import metrics
+    head = ['Method'] + [f'δ = {px} px' + (' (default)' if k is None else '') for k, px in TAF_DELTA]
+    body = []
+    for lab, run in TAF_METHODS:
+        cells = [lab]
+        for k, _ in TAF_DELTA:
+            prot = 'standard' if k is None else f'standard_taf{k}'
+            cells.append(f"{100 * metrics('vd_val', 'v8s', prot, run)['ALL']['mAP']:.2f}" if _exists('vd_val', 'v8s', prot, run)
+                         else '—')
+        body.append(cells)
+    return head, body
+
+
+def soft_table():
+    from .make_tables import _exists
+    from .tables import metrics
+    T = TAF_METHODS[0][1].replace(',trunc=drop,vote=0.6_', '')
+    rows = [('SAHI 512', 'SAHI@512_post=NMS,metric=IOU'), ('MS-tiled 1280', 'MSTILE@1280'), ('HAHI-S', T), ('UC 2×2', 'UC2x2')]
+    head = ['Split', 'Method', 'original rule', 'voting', 'Soft-NMS', 'TAF + voting (+ F)', 'TAF + Soft-NMS']
+
+    def cell(d, prot, run):
+        if not run or not _exists(d, 'v8s', prot, run):
+            return '—'
+        m = metrics(d, 'v8s', prot, run)['ALL']
+        return f"{100 * m['mAP']:.2f} / {100 * m['AP50']:.2f} / {100 * m['AP75']:.2f}"
+    body = []
+    for d, split in (('vd_val', 'val'), ('vd_testdev', 'test-dev')):
+        for lab, base in rows:
+            if base.startswith('HAHI') or base.endswith('IOU'):   # specs whose name already carries options
+                orig = base + '_'
+                vote_only = None if base.startswith('HAHI') else base + ',vote=0.6_'
+                fplug = base + ',trunc=drop,vote=0.6_'
+            else:
+                orig, vote_only, fplug = base, base + '_vote=0.6_', base + '_trunc=drop,vote=0.6_'
+            body.append([split, lab, cell(d, 'standard', orig), cell(d, 'standard', vote_only),
+                         cell(d, 'standard_fzsoft', vote_only), cell(d, 'standard', fplug),
+                         cell(d, 'standard_fzsoft', fplug)])
+    return head, body
+
+
 def main():
     css = open(os.path.join(os.path.dirname(OUT), 'paper.css'), encoding='utf-8').read()
     P = []
@@ -156,8 +266,9 @@ def main():
     add('<h1 class="title">View-aware fusion for crop-based small-object detection in high-resolution drone imagery: '
         'Supporting Information</h1><div class="authors">Byung Jung Han</div>')
     add('<p class="small">All AP values are in percent (COCO AP over IoU 0.50:0.95, up to 500 detections per image; 2,000 for '
-        'DOTA). "Passes" are detector passes per image in 640&times;640 units. Δ values are in AP points; brackets give '
-        '95% paired bootstrap intervals (1,000 resamples; whole sequences for video data). Method names follow the manuscript; '
+        'DOTA). "Passes" are detector passes per image, one per view or canvas whatever its input size. Δ values are in AP '
+        'points; brackets give 95% paired bootstrap intervals (1,000 resamples, and 10,000 for the confirmatory hold-out tests; '
+        'whole sequences for video data). Method names follow the manuscript; PAN* is the crop-planning variant of PAN; '
         '"thesis code" denotes the baselines as implemented in the original HAHI code [12].</p>')
 
     add('<h2>S1 | Development results on VisDrone2019-DET</h2>')
@@ -183,22 +294,32 @@ def main():
     s6 = s6.replace('</div>\n<table', '</div>\n<div class="tnote"><b>(a)</b></div>\n<table', 1)
     add(s6[:-len('</div>')] + '\n<div class="tnote"><b>(b)</b></div>\n' + to_html(bhead, bbody) + '</div>')
 
-    add('<h2>S2 | Pre-registered hold-out evaluation</h2>')
-    add(table('TABLE S7 AP of all 30 pre-registered methods on the hold-out data.', 'T22a'))
-    add(table('TABLE S8 Confirmatory family F1 (plug-in), sequence-level bootstrap with Holm correction within each dataset. '
-              'The Holm-adjusted value 0.033 is the bootstrap resolution (0.001) times the number of comparisons.', 'T22b'))
-    add(table('TABLE S9 Confirmatory family F2 (single-engine efficiency of HAHI-S).', 'T22c'))
-    add(table('TABLE S10 Descriptive comparisons without a directional hypothesis (pre-registered).', 'T22d'))
+    add('<h2>S2 | Pre-specified hold-out evaluation</h2>')
+    add('<p>The protocol specified 1,000 bootstrap replicates. Because 1,000 replicates resolve p only to about 0.001, which '
+        'is coarse after Holm correction over 33 tests, the confirmatory pairs were re-run with 10,000 replicates (same seed '
+        'and resampling scheme). Both analyses are reported with p = (k + 1)/(B + 1), where k is the number of replicates with '
+        'Δ ≤ 0; Holm correction is applied within each family and dataset (F1: 33 tests on VisDrone-VID, 11 on UAVDT; F2: 6 '
+        'and 2). Bold: significant at 0.05 after correction.</p>')
+    add(table('TABLE S7 AP of all 30 pre-specified methods on the hold-out data.', 'T22a'))
+    h, b, ns, nt = holdout_p_table('F1_plugin')
+    add(table(f'TABLE S8 Confirmatory family F1 (plug-in, method + F minus method). Significant after Holm correction: '
+              f'{ns[10000]} of {nt} with 10,000 replicates and {ns[1000]} of {nt} with the registered 1,000 replicates.',
+              head=h, body=b, convert=False))
+    h, b, ns, nt = holdout_p_table('F2_single_engine')
+    add(table(f'TABLE S9 Confirmatory family F2 (single-engine efficiency of HAHI-S; directional hypothesis: HAHI-S + F more '
+              f'accurate). Significant after Holm correction: {ns[10000]} of {nt} (10,000 replicates) and {ns[1000]} of {nt} '
+              f'(1,000).', head=h, body=b, convert=False))
+    add(table('TABLE S10 Descriptive comparisons without a directional hypothesis (pre-specified; 1,000 replicates).', 'T22d'))
 
     add('<h2>S3 | Selected configurations</h2>')
     cfg = [['SAHI 512', 'official library v0.11.36; slice 512, overlap 0.2, full-image prediction; NMS IoU 0.5 (GREEDYNMM default rejected on val)'],
            ['DAHI', 'paper defaults: β = 0.001, 1,000 random regions (width 480–960, 16:9), RDE λ = 0.001, DACS IoS 0.25, C_TH = 0.01, CMA-NMS t = 0.65, θ = 10, t_MT = 0.9; N_ROI = 2 variant from the paper'],
-           ['PAN', '"fine-grained + packing" configuration (the learned patch-arrangement modules are not reproduced); mean-shift bandwidth 256, up to 4 patches per canvas'],
+           ['PAN*', '"fine-grained + packing" configuration (the learned patch-arrangement modules are not reproduced); mean-shift bandwidth 256, up to 4 patches per canvas'],
            ['UC 2×2', 'global 640 pass + four quadrants (thesis code), merging NMS 0.4'],
            ['MS a+b', 'full image at each size, class-wise NMS IoU 0.6 (0.7 for 640+1536 in the hold-out evaluation, selected on val); voting IoU equal to the NMS IoU'],
            ['MS-tiled S', 'global 640 pass + minimum number of 640×640 tiles covering the image resized to longer side S; NMS 0.6'],
            ['HAHI-S', 'uniform density weights, no snapping, no upscaling, no global calibration, merging NMS 0.6; window 512, canvas 960, routing ratio 0.3 (0.1 for "route 0.1")'],
-           ['+ F (view-aware fusion)', 'TAF with δ = 5 px at the detector input for tiles and crops (UC, SAHI, DAHI, MS-tiled), 5 native px for HAHI dense windows, 5 canvas px for PAN canvases and 3 canvas px for HAHI canvases; class-wise NMS at the method\'s own merging threshold τn (UC 0.4, SAHI 0.5, PAN 0.5, HAHI-S 0.6, MS-tiled 0.6, DAHI 0.65) followed by box voting with τv = 0.6'],
+           ['+ F (view-aware fusion)', 'TAF with δ = 5 px at the detector input for tiles and crops (UC, SAHI, DAHI, MS-tiled), 5 native px for HAHI dense windows, 5 canvas px for PAN canvases and 3 canvas px for HAHI canvases; class-wise NMS at the method\'s own merging threshold τn (UC 0.4, SAHI 0.5, PAN 0.5, HAHI-S 0.6, MS-tiled 0.6, DAHI 0.65) followed by box voting with τv = 0.6; sensitivity to δ in S10'],
            ['Dynamic Tiling', 'resize to 1920×1080, 3×2 tiles, edge threshold 2%, Tile Minimizer, full-image pass; selected on val: no large-small filter, NMS 0.6, planning score 0.1 (see S8)']]
     add(table('TABLE S11 Configurations used in the manuscript.', head=['Method', 'Configuration'], body=cfg, convert=False))
 
@@ -213,11 +334,13 @@ def main():
     add(table('TABLE S12 Component ablation of HAHI on val (YOLOv8s).', 'T6a'))
     add(table('TABLE S13 Component ablation of HAHI on test-dev (YOLOv8s).', 'T6b'))
 
-    add('<h2>S5 | Pre-registration files</h2>')
+    add('<h2>S5 | Hold-out protocol files</h2>')
+    add('<p>The files were written on the author\'s computer and were not lodged with an external registry. The hashes '
+        'identify the files; the creation times come from the local file system and cannot be verified independently.</p>')
     man = json.load(open(os.path.join(os.path.dirname(OUT), 'prereg_bundle', 'MANIFEST.json')))
     body = [[f, v['sha256'][:16] + '…', v['created_local'].replace('T', ' ')] for f, v in man['files'].items()]
     body += [[f'first output, {k}', '', v.replace('T', ' ')] for k, v in man['first_holdout_output_local'].items()]
-    add(table('TABLE S14 Pre-registration files (SHA-256 prefix, local creation time, KST) and the time of the first hold-out '
+    add(table('TABLE S14 Protocol files (SHA-256 prefix, local creation time, KST) and the time of the first hold-out '
               'output. The bundle is archived at <span class="todo">[DOI]</span>.', head=['File / event', 'SHA-256', 'Time'],
               body=body, convert=False))
 
@@ -265,6 +388,26 @@ def main():
     h, b = frcnn_rows()
     add(table('TABLE S22 Faster R-CNN on VisDrone2019-DET test-dev: every method with and without view-aware fusion '
               '(MS: with and without voting).', head=h, body=b, convert=False))
+
+    add('<h2>S10 | Recall lost by TAF and sensitivity to the border distance</h2>')
+    add('<p>TAF uses border contact as a proxy for truncation. Table S23 counts, for HAHI-S + F with YOLOv8s, the objects '
+        'whose only correct candidate (IoU &ge; 0.5, same class, score &ge; 0.001) in any view was a border-touching local box '
+        'removed by TAF, so that no remaining candidate and no fused detection matched them. "AP restored" adds, for each '
+        'such object, the removed box with its own score; this repair is optimistic, because a real rule cannot tell which '
+        'border boxes are correct. VisDrone-VID is part of the hold-out data; this analysis is exploratory.</p>')
+    h, b = taf_loss_table()
+    add(table('TABLE S23 Objects lost to TAF (HAHI-S + F, YOLOv8s), by object size (square root of the box area) and by '
+              'image width.', head=h, body=b, convert=False))
+    add('<p>Table S24 varies the border distance δ on val. δ is given at the detector input for tiles and crops and in '
+        'native pixels for the dense windows of HAHI-S; the canvas distance of HAHI-S (3 px by default) was scaled by the '
+        'same factor. δ = 0 removes only boxes whose side lies exactly on an interior border.</p>')
+    h, b = taf_delta_table()
+    add(table('TABLE S24 AP (%) on VisDrone val (YOLOv8s) for different border distances δ.', head=h, body=b, convert=False))
+    add('<p>Table S25 adds Soft-NMS (Gaussian, σ = 0.5, score floor 0.001; Bodla et al., ICCV 2017) to the merging rules '
+        'compared on identical detections (YOLOv8s), with and without TAF.</p>')
+    h, b = soft_table()
+    add(table('TABLE S25 Soft-NMS compared with voting on identical detections (YOLOv8s). AP / AP<sub>50</sub> / '
+              'AP<sub>75</sub> in %.', head=h, body=b, convert=False))
 
     doc = ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Supporting Information</title>'
            '<link rel="stylesheet" href="paper.css"></head><body><div class="page">' + '\n'.join(P) + '</div></body></html>')

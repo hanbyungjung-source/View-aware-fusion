@@ -1,13 +1,15 @@
 # View-aware fusion for crop-based small-object detection
 
 Code for the manuscript *"View-aware fusion for crop-based small-object detection in high-resolution drone imagery:
-a controlled and pre-registered evaluation"* (Byung Jung Han; manuscript in submission).
+a controlled evaluation"* (Byung Jung Han; manuscript in submission).
 
 **View-aware fusion** is a training-free merging rule for crop-based inference (uniform tiles, SAHI-style slices,
 density-guided windows, packed canvases, multi-scale tiles) that runs a global view next to the local crops:
 
 1. **Truncation-aware filtering (TAF).** A local detection that touches a crop border lying *inside* the image is
-   discarded; the object is assumed to be covered by the global view or by another crop.
+   discarded; the object is assumed to be contained whole in the global view or in another crop. Border contact is a
+   proxy for truncation, and the filter can remove the only correct detection of a small object that the global view
+   misses (0.2–0.3% of the objects in our experiments; `taf_loss.py`).
 2. **Score-weighted box voting.** All remaining global and local boxes are merged by class-wise NMS, and each kept box
    is replaced by the score-weighted mean of the same-class candidates that overlap it (IoU &ge; 0.6).
 
@@ -29,11 +31,11 @@ evaluation, and the scripts that generate the figures and tables.
 | `hahi_bench/dyntile.py` | Re-implementation of Dynamic Tiling (tiling + flag-and-re-crop + large&ndash;small filter) |
 | `hahi_bench/run_eval.py` | Runs method specifications over a dataset and stores raw detections and per-image cost |
 | `hahi_bench/evaluate.py`, `metrics.py` | COCO evaluation with VisDrone ignore regions; ALL / HR / LR subsets |
-| `hahi_bench/stats.py` | Paired bootstrap of AP differences (image level, or sequence level with `--cluster`) |
+| `hahi_bench/stats.py`, `boot_gpu.py` | Paired bootstrap of AP differences (image level, or sequence level with `--cluster`); `boot_gpu.py` computes the same replicates on the GPU (identical to the CPU result within 1e-16) and writes the same cache files |
 | `hahi_bench/prereg.py`, `holdout.py`, `prereg*.json` | Pre-registration and the frozen hold-out protocol |
 | `hahi_bench/train.py`, `train_frcnn.py` | Detector training (YOLOv8n/s, YOLO11s, UAVDT, DOTA; Faster R-CNN R50-FPN v2) |
 | `hahi_bench/trt_bench.py` | TensorRT FP16/INT8 export and latency measurement (optional) |
-| `hahi_bench/headroom.py`, `fusion_rules.py`, `diag_*.py`, `gating.py`, `adaptive.py`, `fairness.py`, `directions.py` | Analyses reported in the manuscript and its Supporting Information |
+| `hahi_bench/headroom.py`, `taf_loss.py`, `fusion_rules.py`, `diag_*.py`, `gating.py`, `adaptive.py`, `fairness.py`, `directions.py` | Analyses reported in the manuscript and its Supporting Information |
 | `hahi_bench/paper_figs.py`, `paper_rows.py`, `paper_si.py` | Figures, table rows and Supporting Information of the manuscript |
 | `preregistration/` | Frozen pre-registration bundle (files, SHA-256 manifest, timeline); see its README |
 
@@ -113,16 +115,43 @@ The analysis scripts read results of earlier runs. In particular, `fusion_rules.
 scale-response allocation in `thesis_methods.py` need the detector's scale-response profile
 `hahi_bench/runs/vd_val/v8s/standard/diag_scale.json`, written by `python -m hahi_bench.diag_scale --data vd_val`.
 
-## Pre-registered hold-out evaluation
+### Study switches (off by default)
 
-The protocol for VisDrone2019-VID and UAVDT (30 method configurations, confirmatory families, statistics) was
-frozen in `hahi_bench/prereg.json` and `hahi_bench/prereg_amendment1.json` before any hold-out inference.
+| Environment variable | Effect |
+|---|---|
+| `HAHI_TAF_SCALE=k` | multiplies the TAF border distance δ (5 px at the detector input / native window pixels, 3 canvas pixels) by k; used for the δ sensitivity analysis |
+| `HAHI_FUSION=soft` | replaces NMS + voting by Gaussian Soft-NMS (σ = 0.5, score floor 0.001) for specifications with `vote>0` |
+| `HAHI_FUSION=wbf_max` / `wbf_avg` / `nmm` | weighted boxes fusion (max / average score) or SAHI's GREEDYNMM instead of voting |
+| `HAHI_VOTE_DEVICE=cuda` | runs NMS + voting on the GPU (AP identical to within 1e-5) |
+
+Use a different `--suffix` for each switch so that the runs are stored separately, e.g.
+`HAHI_TAF_SCALE=2 python -m hahi_bench.run_eval ... --suffix _taf2`.
+
+### Recall lost by TAF
 
 ```bash
-python -m hahi_bench.holdout run  --tag v8s    # inference for every pre-registered method
-python -m hahi_bench.holdout eval --tag v8s    # COCO evaluation
-python -m hahi_bench.holdout boot --tag v8s    # sequence-level paired bootstrap, Holm correction
+python -m hahi_bench.diag_views collect --data vd_val      # per-view detections of HAHI-S and MS
+python -m hahi_bench.taf_loss --data vd_val                # objects whose only correct detection TAF removed
+python -m hahi_bench.headroom --data vd_val                # TIDE-style error decomposition (Table 7)
 ```
+
+## Pre-specified hold-out evaluation
+
+The protocol for VisDrone2019-VID and UAVDT (30 method configurations, confirmatory families, statistics) was
+fixed in `hahi_bench/prereg.json` and `hahi_bench/prereg_amendment1.json` before any hold-out inference. The files
+were not lodged with an external registry, so their creation times cannot be verified independently; the manuscript
+therefore calls the protocol pre-specified rather than pre-registered.
+
+```bash
+python -m hahi_bench.holdout run  --tag v8s              # inference for every pre-specified method
+python -m hahi_bench.holdout eval --tag v8s              # COCO evaluation
+python -m hahi_bench.holdout boot --tag v8s              # sequence-level paired bootstrap, 1,000 replicates (as registered)
+python -m hahi_bench.boot_gpu --data vid_holdout --tag v8s --n 10000 --cluster   # optional: replicates on the GPU
+python -m hahi_bench.holdout boot --tag v8s --n 10000    # confirmatory pairs with 10,000 replicates (primary analysis)
+```
+
+One-sided p-values are computed as (k + 1)/(B + 1), where k is the number of replicates with Δ ≤ 0 (`p_boot` in the
+bootstrap JSON files); Holm correction is applied within each family and dataset.
 
 The code was extended after the hold-out evaluation with switches that are off by default (alternative fusion
 rules, the Dynamic Tiling baseline, the Faster R-CNN wrapper, environment-variable dataset roots), so the current

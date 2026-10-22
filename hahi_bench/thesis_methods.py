@@ -153,12 +153,59 @@ def wbf_single(B, S, C, iou_thr=0.6, conf_type='avg'):
             np.concatenate(out_c).astype(C.dtype))
 
 
+def taf_scale():
+    """Study switch for the delta sensitivity analysis: HAHI_TAF_SCALE multiplies the TAF border distance
+    (5 px at the detector input / in native window pixels, 3 canvas pixels). Default 1 = the published setting."""
+    import os
+    return float(os.environ.get('HAHI_TAF_SCALE', '1'))
+
+
+def soft_nms(B, S, C, sigma=0.5, score_thr=0.001, max_det=1000):
+    """Class-wise Gaussian Soft-NMS (Bodla et al., ICCV 2017): instead of removing overlapping boxes, their scores are
+    multiplied by exp(-IoU^2 / sigma); boxes whose score falls below score_thr are removed. Vectorised per iteration
+    in numpy (each iteration is O(number of remaining boxes))."""
+    ob, os_, oc = [], [], []
+    for cls in np.unique(C):
+        idx = np.flatnonzero(C == cls)
+        b = B[idx].astype(np.float64)
+        s = S[idx].astype(np.float64).copy()
+        x1, y1, x2, y2 = b[:, 0], b[:, 1], b[:, 2], b[:, 3]
+        area = np.maximum(x2 - x1, 0) * np.maximum(y2 - y1, 0)
+        alive = np.arange(len(idx))
+        keep, ks = [], []
+        while alive.size:
+            j = alive[int(np.argmax(s[alive]))]
+            if s[j] < score_thr:
+                break
+            keep.append(j)
+            ks.append(s[j])
+            alive = alive[alive != j]
+            if not alive.size:
+                break
+            iw = np.maximum(np.minimum(x2[j], x2[alive]) - np.maximum(x1[j], x1[alive]), 0)
+            ih = np.maximum(np.minimum(y2[j], y2[alive]) - np.maximum(y1[j], y1[alive]), 0)
+            inter = iw * ih
+            iou = inter / np.maximum(area[j] + area[alive] - inter, 1e-12)
+            s[alive] *= np.exp(-(iou ** 2) / sigma)
+            alive = alive[s[alive] >= score_thr]
+        if keep:
+            ob.append(B[idx[keep]])
+            os_.append(np.asarray(ks, np.float32))
+            oc.append(C[idx[keep]])
+    if not ob:
+        return B[:0], S[:0], C[:0]
+    b, s, c = np.concatenate(ob), np.concatenate(os_), np.concatenate(oc)
+    o = np.argsort(-s, kind='stable')[:max_det]
+    return b[o].astype(B.dtype), s[o].astype(S.dtype), c[o]
+
+
 def nms_vote(B, S, C, thr, vote_thr=0.0):
     """Class-wise NMS; with vote_thr > 0 each kept box is replaced by the score-weighted mean of all same-class
     candidate boxes with IoU >= vote_thr (box voting, Gidaris & Komodakis 2015). Returns (boxes, scores, classes).
 
-    Study switches (environment, default off; used only for the overlap / overhead analysis in REPORT section 21):
-      HAHI_FUSION = wbf_avg | wbf_max | nmm  -> replace the fusion rule (WBF, or SAHI's GREEDYNMM with IoS 0.5)
+    Study switches (environment, default off; used only for the overlap / overhead analysis in REPORT sections 21, 24):
+      HAHI_FUSION = wbf_avg | wbf_max | nmm | soft -> replace the fusion rule (WBF, SAHI's GREEDYNMM with IoS 0.5,
+                                                      or Gaussian Soft-NMS with sigma 0.5)
       HAHI_VOTE_DEVICE = cuda                -> run NMS + voting on the GPU"""
     import os
     import torch
@@ -171,6 +218,8 @@ def nms_vote(B, S, C, thr, vote_thr=0.0):
     if vote_thr > 0 and mode == 'nmm':
         from .baselines import sahi_postprocess
         return sahi_postprocess(B, S, C, 'GREEDYNMM', 'IOS', 0.5)
+    if vote_thr > 0 and mode == 'soft':
+        return soft_nms(B, S, C)
     dev = os.environ.get('HAHI_VOTE_DEVICE', 'cpu')
     tb, ts, tc = (torch.from_numpy(B.astype(np.float32)).to(dev), torch.from_numpy(S.astype(np.float32)).to(dev),
                   torch.from_numpy(C).to(dev))
@@ -195,13 +244,14 @@ def _merge_fast(cfg, gb, gs, gc, regions, res, n_dense, infos, wh=None):
     LB, LS, LC = [], [], []
     W, H = wh if wh is not None else (np.inf, np.inf)
     drop = cfg.trunc == 'drop'
+    d5, d3 = 5 * taf_scale(), 3 * taf_scale()
     for (x1, y1, x2, y2), (b, s, c) in zip(regions, res[:n_dense]):
         if not len(b):
             continue
         bb, ss = b.astype(np.float64), s.astype(np.float64)
         if drop:
-            t = ((bb[:, 0] <= 5) & (x1 > 0)) | ((bb[:, 1] <= 5) & (y1 > 0)) | \
-                ((bb[:, 2] >= x2 - x1 - 5) & (x2 < W)) | ((bb[:, 3] >= y2 - y1 - 5) & (y2 < H))
+            t = ((bb[:, 0] <= d5) & (x1 > 0)) | ((bb[:, 1] <= d5) & (y1 > 0)) | \
+                ((bb[:, 2] >= x2 - x1 - d5) & (x2 < W)) | ((bb[:, 3] >= y2 - y1 - d5) & (y2 < H))
             bb, ss, c = bb[~t], ss[~t], c[~t]
             LS.append(ss)
         else:
@@ -228,8 +278,8 @@ def _merge_fast(cfg, gb, gs, gc, regions, res, n_dense, infos, wh=None):
         cc = c[sel]
         if drop:
             ow, oh = (icx2[o] - icx1[o]) / isc[o], (icy2[o] - icy1[o]) / isc[o]
-            t = ((bb[:, 0] <= icx1[o] + 3) & (iox[o] > 0)) | ((bb[:, 1] <= icy1[o] + 3) & (ioy[o] > 0)) | \
-                ((bb[:, 2] >= icx2[o] - 3) & (iox[o] + ow < W - 1)) | ((bb[:, 3] >= icy2[o] - 3) & (ioy[o] + oh < H - 1))
+            t = ((bb[:, 0] <= icx1[o] + d3) & (iox[o] > 0)) | ((bb[:, 1] <= icy1[o] + d3) & (ioy[o] > 0)) | \
+                ((bb[:, 2] >= icx2[o] - d3) & (iox[o] + ow < W - 1)) | ((bb[:, 3] >= icy2[o] - d3) & (ioy[o] + oh < H - 1))
             o, bb, ss, cc = o[~t], bb[~t], ss[~t], cc[~t]
             LS.append(ss)
         else:
@@ -596,7 +646,7 @@ def run_uc(det, img, cfg, timer):
     boxes, scores, classes = [], [], []
     for k, ((ox, oy), (b, s, c)) in enumerate(zip(offs, res)):
         if len(b) and k > 0 and cfg.trunc == 'drop':
-            m = 5.0 * max(cw, ch) / 640                   # 5 px at detector input, in native pixels
+            m = 5.0 * taf_scale() * max(cw, ch) / 640       # 5 px at detector input, in native pixels
             cut = ((b[:, 0] <= m) & (ox > 0)) | ((b[:, 1] <= m) & (oy > 0)) | \
                 ((b[:, 2] >= cw - m) & (ox + cw < w)) | ((b[:, 3] >= ch - m) & (oy + ch < h))
             b, s, c = b[~cut], s[~cut], c[~cut]

@@ -83,8 +83,10 @@ def _summary(ref, other, n):
     res = {}
     for j, key in enumerate(['mAP', 'AP50', 'APs']):
         lo, hi = np.percentile(d[1:, j], [2.5, 97.5])
+        k = int(np.sum(d[1:, j] <= 0))
+        # p_boot: one-sided bootstrap p-value with the usual add-one correction, (k + 1) / (B + 1)
         res[key] = {'delta': float(d[0, j]), 'ci_lo': float(lo), 'ci_hi': float(hi),
-                    'p_le_0': float(np.mean(d[1:, j] <= 0)), 'n': n}
+                    'p_le_0': float(np.mean(d[1:, j] <= 0)), 'k_le_0': k, 'p_boot': (k + 1) / (n + 1), 'n': n}
     return res
 
 
@@ -109,7 +111,8 @@ def main():
     pairs = [tuple(p.split('|')) for p in args.pairs.split(';') if p] or \
         [(r, o) for r in refs for o in others if o != r]
     root = os.path.dirname(next(iter(runs.values())))
-    out_path = lambda ref: os.path.join(root, f'bootstrap_{args.subset}_thr{args.thr:g}_ref-{ref}.json')
+    nsuf = '' if args.n == 1000 else f'_n{args.n}'   # the 1,000-replicate results keep their original file names
+    out_path = lambda ref: os.path.join(root, f'bootstrap_{args.subset}_thr{args.thr:g}{nsuf}_ref-{ref}.json')
     load = lambda ref: json.load(open(out_path(ref))) if os.path.exists(out_path(ref)) else {}
     needed = sorted({x for p in pairs for x in p})
     print(f'{len(pairs)} pairs, {len(needed)} runs', flush=True)

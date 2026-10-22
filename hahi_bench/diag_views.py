@@ -25,7 +25,8 @@ from .metrics import coco_eval
 from .run_eval import RUN_ROOT
 
 WEIGHTS = {'vd_val': 'hahi_bench/train_runs/v8s_official/weights/best.pt',
-           'vd_testdev': 'hahi_bench/train_runs/v8s_official/weights/best.pt'}
+           'vd_testdev': 'hahi_bench/train_runs/v8s_official/weights/best.pt',
+           'vid_holdout': 'hahi_bench/train_runs/v8s_official/weights/best.pt'}
 CFG_S = replace(TM.standard(TM.THESIS), weight='uniform', snap=False, upscale='none', gcc=1.0, nms_local=0.6,
                 nms_final=0.6, fast_merge=True, nms_impl='tv')
 

@@ -15,9 +15,11 @@ every view that the fusion receives (after TAF, score >= 0.001).
              (IoU >= 0.5) -> ceiling of cross-view class consensus
   miss_pool  add, for every GT missed after fusion, the best same-class pool candidate (IoU >= 0.5) with its own score
              -> recall that the fusion threw away
+  taf_lost   add, for every GT that only TAF-removed border boxes found (IoU >= 0.5), the best such box
+             -> recall lost to truncation-aware filtering (HAHI-S only)
   fusion     dupe + loc_pool + miss_pool together -> ceiling of any fusion rule over these candidates
   cls / bkg  remove class-confusion / background false positives -> scoring errors of the detector (reference)
-  miss_det   remove GT that no view detected (IoU >= 0.5) -> recall the detector never produced (reference)
+  miss_det   remove GT that no view detected before TAF (IoU >= 0.5) -> recall the detector never produced (reference)
 
   python -m hahi_bench.headroom --data vd_val
 """
@@ -55,6 +57,13 @@ def pool_of(v, method):
             v['vid'][keep].astype(np.int64))
 
 
+def full_of(v):
+    """Every candidate of every view before TAF (score >= 0.001): defines what the detector found at all."""
+    keep = v['s'] >= 0.001
+    return (v['b'][keep].astype(np.float64), v['s'][keep].astype(np.float64), v['c'][keep].astype(np.int64),
+            v['vid'][keep].astype(np.int64))
+
+
 def fuse_online(v, method):
     """Fusion as in the online method: TAF (HAHI-S only) + NMS 0.6 + box voting 0.6."""
     return TM.nms_vote(*pool_of(v, method)[:3], 0.6, 0.6)
@@ -85,19 +94,22 @@ def greedy_match(db, ds, dc, gb, gc, thr=0.5):
     return dm, gm
 
 
-def analyse_image(r, det, pool):
-    """Returns per-image oracle detections / GT masks and coverage statistics."""
+def analyse_image(r, det, pool, full=None):
+    """Returns per-image oracle detections / GT masks and coverage statistics. `full` = candidates before TAF."""
     gb_all, gc_all = r.boxes.astype(np.float64), r.cls.astype(np.int64)
     kg = np.ones(len(gb_all), bool)
     db, ds, dc = (np.asarray(x) for x in det)
     db, ds, dc = db.astype(np.float64), ds.astype(np.float64), dc.astype(np.int64)
     pb, ps, pc, pv = pool
+    fb, fs, fc, _ = full if full is not None else pool
     if len(r.ignore):
         kg = _ignored_fraction(gb_all.astype(np.float32), r.ignore, r.w, r.h) <= 0.5
         kd = _ignored_fraction(db.astype(np.float32), r.ignore, r.w, r.h) <= 0.5
         db, ds, dc = db[kd], ds[kd], dc[kd]
         kp = _ignored_fraction(pb.astype(np.float32), r.ignore, r.w, r.h) <= 0.5
         pb, ps, pc, pv = pb[kp], ps[kp], pc[kp], pv[kp]
+        kf = _ignored_fraction(fb.astype(np.float32), r.ignore, r.w, r.h) <= 0.5
+        fb, fs, fc = fb[kf], fs[kf], fc[kf]
     gidx = np.flatnonzero(kg)
     gb, gc = gb_all[kg], gc_all[kg]
 
@@ -114,6 +126,9 @@ def analyse_image(r, det, pool):
     PG = _iou(pb, gb)
     PG[pc[:, None] != gc[None]] = 0.0
     pool_best = PG.max(0) if len(pb) else np.zeros(len(gb))
+    FG = _iou(fb, gb)
+    FG[fc[:, None] != gc[None]] = 0.0
+    full_best = FG.max(0) if len(fb) else np.zeros(len(gb))
     fused_best = same.max(0) if len(db) else np.zeros(len(gb))
 
     # loc_pool: each TP / loc-FP takes the best box of its own cluster for its target GT
@@ -170,6 +185,12 @@ def analyse_image(r, det, pool):
         return np.concatenate([b, pb[e]]), np.concatenate([s, ps[e]]), np.concatenate([c, pc[e]])
 
     keep_nd = typ != 'dupe'
+    # taf_lost: GT that only TAF-removed border boxes found (IoU >= 0.5); the oracle restores the best such box
+    taf_lost = (gm < 0) & (pool_best < 0.5) & (full_best >= 0.5)
+    add_taf = [int(FG[:, j].argmax()) for j in np.flatnonzero(taf_lost)]
+    taf_b = np.concatenate([db, fb[add_taf]]) if add_taf else db
+    taf_s = np.concatenate([ds, fs[add_taf]]) if add_taf else ds
+    taf_c = np.concatenate([dc, fc[add_taf]]) if add_taf else dc
     out = {
         'base': (db, ds, dc),
         'dupe': (db[keep_nd], ds[keep_nd], dc[keep_nd]),
@@ -177,18 +198,21 @@ def analyse_image(r, det, pool):
         'loc_view': (locv_b, ds, dc),
         'cls_pool': (db, ds, cls_c),
         'miss_pool': cat(db, ds, dc, [p for _, p in add]),
+        'taf_lost': (taf_b, taf_s, taf_c),
         'fusion': cat(loc_b[keep_nd], ds[keep_nd], dc[keep_nd], add_nt),
         'cls': (db[typ != 'cls'], ds[typ != 'cls'], dc[typ != 'cls']),
         'bkg': (db[typ != 'bkg'], ds[typ != 'bkg'], dc[typ != 'bkg']),
     }
     out = {k: (b.astype(np.float32), s.astype(np.float32), c.astype(np.int64)) for k, (b, s, c) in out.items()}
-    det_miss = (gm < 0) & (pool_best < 0.5)
+    # detector misses are defined on all views before TAF, so that objects removed by TAF are not counted here
+    det_miss = (gm < 0) & (full_best < 0.5)
     keep_gt = np.ones(len(gb_all), bool)
     keep_gt[gidx[det_miss]] = False
     size = np.sqrt(np.maximum((gb[:, 2] - gb[:, 0]) * (gb[:, 3] - gb[:, 1]), 0))
     stats = {'n_gt': len(gb), 'fused50': int((gm >= 0).sum()), 'pool50': int((pool_best >= 0.5).sum()),
              'fused75': int((fused_best >= 0.75).sum()), 'pool75': int((pool_best >= 0.75).sum()),
              'det_miss': int(det_miss.sum()), 'fusion_miss': int(((gm < 0) & (pool_best >= 0.5)).sum()),
+             'taf_lost': int(taf_lost.sum()), 'taf_lost_size': np.histogram(size[taf_lost], SIZE_EDGES)[0].tolist(),
              'det_miss_size': np.histogram(size[det_miss], SIZE_EDGES)[0].tolist(),
              'gt_size': np.histogram(size, SIZE_EDGES)[0].tolist(),
              'tp_cluster_sum': int(sum(n_cl)), 'tp_views_sum': int(sum(n_view)), 'tp_with_cluster': len(n_cl),
@@ -207,7 +231,7 @@ def run(args):
         m_plain, _ = coco_eval(recs, plain, idx, n_cls=len(names))
         O, R2, agg = {}, [], None
         for i in idx:
-            out, keep_gt, st = analyse_image(recs[i], fuse_online(V[i], method), pool_of(V[i], method))
+            out, keep_gt, st = analyse_image(recs[i], fuse_online(V[i], method), pool_of(V[i], method), full_of(V[i]))
             for k, v in out.items():
                 O.setdefault(k, {})[i] = v
             R2.append(replace(recs[i], boxes=recs[i].boxes[keep_gt], cls=recs[i].cls[keep_gt]))
@@ -223,7 +247,7 @@ def run(args):
                     else:
                         agg[k] += v
         rows = {'plain': m_plain}
-        for k in ['base', 'dupe', 'loc_pool', 'loc_view', 'cls_pool', 'miss_pool', 'fusion', 'cls', 'bkg']:
+        for k in ['base', 'dupe', 'loc_pool', 'loc_view', 'cls_pool', 'miss_pool', 'taf_lost', 'fusion', 'cls', 'bkg']:
             rows[k], _ = coco_eval(recs, O[k], idx, n_cls=len(names))
         rows['miss_det'], _ = coco_eval(R2, O['base'], idx, n_cls=len(names))
         res[method] = {'metrics': rows, 'stats': agg}

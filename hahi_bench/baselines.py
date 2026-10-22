@@ -83,7 +83,8 @@ def run_mstile(det, img, timer, size=1280, overlap=0.0, conf=0.001, iou=0.6, max
     t = time.perf_counter()
     for (x1, y1, x2, y2), (b, s, c) in zip(tiles, res):
         if trunc == 'drop' and len(b):
-            m = 5.0 * max(x2 - x1, y2 - y1) / base          # 5 px at detector input, in native pixels
+            from .thesis_methods import taf_scale
+            m = 5.0 * taf_scale() * max(x2 - x1, y2 - y1) / base   # 5 px at detector input, in native pixels
             cut = ((b[:, 0] <= m) & (x1 > 0)) | ((b[:, 1] <= m) & (y1 > 0)) | \
                 ((b[:, 2] >= x2 - x1 - m) & (x2 < w)) | ((b[:, 3] >= y2 - y1 - m) & (y2 < h))
             b, s, c = b[~cut], s[~cut], c[~cut]
@@ -173,7 +174,8 @@ def run_sahi(det, img, timer, slice_size=512, overlap=0.2, standard_pred=True, p
     parts = []
     for (x1, y1, x2, y2), (b, s, c) in zip(sl, res):
         if len(b) and trunc == 'drop' and standard_pred and len(sl) > 1:
-            m = 5.0 * max(x2 - x1, y2 - y1) / 640
+            from .thesis_methods import taf_scale
+            m = 5.0 * taf_scale() * max(x2 - x1, y2 - y1) / 640
             cut = ((b[:, 0] <= m) & (x1 > 0)) | ((b[:, 1] <= m) & (y1 > 0)) | \
                 ((b[:, 2] >= x2 - x1 - m) & (x2 < w)) | ((b[:, 3] >= y2 - y1 - m) & (y2 < h))
             b, s, c = b[~cut], s[~cut], c[~cut]

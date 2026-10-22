@@ -32,13 +32,16 @@ def evaluate(tag, data):
                    check=True)
 
 
-def boot(tag, data, workers):
+def boot(tag, data, workers, n=1000):
+    """n = 1000 as registered (all pairs); the revision re-ran the confirmatory pairs (F1, F2) with n = 10000 for p-value
+    resolution, while the descriptive pairs keep the registered 1,000 replicates."""
     M = PREREG['methods']
-    pairs = PREREG['primary_families']['F1_plugin']['pairs'] + PREREG['primary_families']['F2_single_engine']['pairs'] \
-        + PREREG['descriptive_pairs']['pairs']
+    pairs = PREREG['primary_families']['F1_plugin']['pairs'] + PREREG['primary_families']['F2_single_engine']['pairs']
+    if n == 1000:
+        pairs += PREREG['descriptive_pairs']['pairs']
     arg = ';'.join(f'{safe(M[a])}|{safe(M[b])}' for a, b in pairs)
     subprocess.run([sys.executable, '-m', 'hahi_bench.stats', '--data', data, '--tag', tag, '--refs', 'x', '--pairs',
-                    arg, '--n', '1000', '--workers', str(workers), '--cluster'], check=True)
+                    arg, '--n', str(n), '--workers', str(workers), '--cluster'], check=True)
 
 
 if __name__ == '__main__':
@@ -47,6 +50,7 @@ if __name__ == '__main__':
     ap.add_argument('--tag', required=True)
     ap.add_argument('--data', default=DATA)
     ap.add_argument('--workers', type=int, default=3)
+    ap.add_argument('--n', type=int, default=1000)
     a = ap.parse_args()
     {'run': lambda: run(a.tag, a.data), 'eval': lambda: evaluate(a.tag, a.data),
-     'boot': lambda: boot(a.tag, a.data, a.workers)}[a.cmd]()
+     'boot': lambda: boot(a.tag, a.data, a.workers, a.n)}[a.cmd]()

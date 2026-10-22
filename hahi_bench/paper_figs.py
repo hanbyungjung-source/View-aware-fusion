@@ -195,7 +195,7 @@ def fig3():
             ('Magnification: scale-response\nallocation (best λ, vs. HAHI-S)', 0.2841 - 0.2834, 'magnification'),
             ('Fusion: truncation-aware\nfiltering (TAF, vs. HAHI-S)', 0.2863 - 0.2834, 'fusion'),
             ('Fusion: + box voting\n(vs. HAHI-S + TAF)', 0.2897 - 0.2863, 'fusion'),
-            ('Truncation-aware retraining\nupper bound (vs. TAF)', 0.2835 - 0.2865, 'fusion')]
+            ('GT-guided retention of border\nboxes (boxes fixed; vs. TAF)', 0.2835 - 0.2865, 'fusion')]
     col = {'selection': '#9e9e9e', 'magnification': '#9e9e9e', 'fusion': C_PLUG}
     fig, ax = plt.subplots(figsize=(W1, 2.35))
     y = np.arange(len(rows))[::-1]
@@ -218,7 +218,7 @@ CROP = [('UC 2×2', 'UC2x2', 'UC2x2_trunc=drop,vote=0.6_'),
         ('SAHI 512', 'SAHI@512_post=NMS,metric=IOU_', 'SAHI@512_post=NMS,metric=IOU,trunc=drop,vote=0.6_'),
         ('DAHI', 'DAHI', 'DAHI_trunc=drop,vote=0.6_'),
         ('DAHI, $N_{\\mathrm{ROI}}$ = 2', 'DAHI_n_roi=2_', 'DAHI_n_roi=2,trunc=drop,vote=0.6_'),
-        ('PAN', 'PAN_bandwidth=256_', 'PAN_bandwidth=256,trunc=drop,vote=0.6_'),
+        ('PAN*', 'PAN_bandwidth=256_', 'PAN_bandwidth=256,trunc=drop,vote=0.6_'),
         ('MS-tiled 960', 'MSTILE@960', 'MSTILE@960_trunc=drop,vote=0.6_'),
         ('MS-tiled 1280', 'MSTILE@1280', 'MSTILE@1280_trunc=drop,vote=0.6_'),
         ('MS-tiled 1536', 'MSTILE@1536', 'MSTILE@1536_trunc=drop,vote=0.6_'),
@@ -229,7 +229,7 @@ CROP = [('UC 2×2', 'UC2x2', 'UC2x2_trunc=drop,vote=0.6_'),
 def fig4():
     off = {'UC 2×2': (4, 2, 'left'), 'SAHI 512': (-4, 4, 'right'), 'DAHI': (4, 2, 'left'),
            'DAHI, $N_{\\mathrm{ROI}}$ = 2': (4, 0, 'left'),
-           'PAN': (4, -9, 'left'), 'MS-tiled 960': (-4, 4, 'right'), 'MS-tiled 1280': (5, -4, 'left'),
+           'PAN*': (4, -9, 'left'), 'MS-tiled 960': (-4, 4, 'right'), 'MS-tiled 1280': (5, -4, 'left'),
            'MS-tiled 1536': (4, -9, 'left'), 'HAHI-S': (4, 3, 'left'), 'HAHI-S, route 0.1': (-4, 4, 'right')}
     moff = {'Global 1280': (-4, 3, 'right'), 'MS 640+1280 + voting': (-4, 5, 'right'),
             'MS 640+1280+1536': (-4, 4, 'right')}
@@ -282,18 +282,23 @@ def fig4():
 
 
 # ----------------------------------------------------------------------------------------------------------- Fig. 5/6
-def _holdout_rows():
+def _holdout_rows(n=10000):
+    """F1 pairs on the hold-out data. n = bootstrap replicates (10,000 primary analysis, 1,000 as registered);
+    p = (k + 1) / (n + 1), k = replicates with delta <= 0."""
     from .holdout import PREREG, safe
     Mm = PREREG['methods']
+    suf = '' if n == 1000 else f'_n{n}'
     rows = []
     for d, t in [('vid_holdout', 'v8s'), ('vid_holdout', 'v8n'), ('vid_holdout', 'y11s'), ('uavdt_test', 'v8s')]:
         for a, b in PREREG['primary_families']['F1_plugin']['pairs']:
-            p = os.path.join(RUN_ROOT, d, t, 'standard', f'bootstrap_ALL_thr0_ref-{safe(Mm[a])}.json')
+            p = os.path.join(RUN_ROOT, d, t, 'standard', f'bootstrap_ALL_thr0{suf}_ref-{safe(Mm[a])}.json')
             x = json.load(open(p)).get(safe(Mm[b])) if os.path.exists(p) else None
             mb = M(d, t, safe(Mm[b]))
             if x and mb:
+                k = x['mAP'].get('k_le_0', round(x['mAP']['p_le_0'] * n))
                 rows.append({'data': d, 'tag': t, 'method': b, 'd': x['mAP']['delta'], 'lo': x['mAP']['ci_lo'],
-                             'hi': x['mAP']['ci_hi'], 'p': x['mAP']['p_le_0'], 'passes': mb['n_inf'], 'base': mb['mAP']})
+                             'hi': x['mAP']['ci_hi'], 'p': (k + 1) / (n + 1), 'k': k, 'n': n,
+                             'passes': mb['n_inf'], 'base': mb['mAP']})
     return rows
 
 
@@ -309,10 +314,11 @@ def _dev_rows():
 
 
 def _holm(ps):
+    """Holm-adjusted p-values (monotone step-down)."""
     o = np.argsort(ps)
     adj, run = np.empty(len(ps)), 0.0
     for r, k in enumerate(o):
-        run = max(run, min(1.0, (len(ps) - r) * max(ps[k], 0.001)))
+        run = max(run, min(1.0, (len(ps) - r) * ps[k]))
         adj[k] = run
     return adj
 
@@ -342,7 +348,7 @@ def fig5():
                 ax.scatter([x], [r['d'] * 100], s=30, facecolor='none', edgecolor='black', lw=0.7, zorder=5)
     ax.axhline(0, color='black', lw=0.6)
     ax.set_xticks(range(len(meth)))
-    lab = {'UC': 'UC 2×2', 'SAHI': 'SAHI 512', 'DAHI': 'DAHI', 'DAHI N_ROI=2': 'DAHI,\n$N_{\\mathrm{ROI}}$ = 2', 'PAN': 'PAN',
+    lab = {'UC': 'UC 2×2', 'SAHI': 'SAHI 512', 'DAHI': 'DAHI', 'DAHI N_ROI=2': 'DAHI,\n$N_{\\mathrm{ROI}}$ = 2', 'PAN': 'PAN*',
            'HAHI-S route 0.1': 'HAHI-S,\nroute 0.1'}
     ax.set_xticklabels([lab.get(m, m.replace('MS-tiled ', 'MS-tiled\n')) for m in meth], fontsize=6.5)
     ax.set_ylabel('ΔAP, + F − original\n(points, 95% CI)')
